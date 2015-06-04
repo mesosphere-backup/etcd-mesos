@@ -1,0 +1,187 @@
+events
+------
+master crash
+master failover
+framework crash
+framework failover
+slave crash
+slave recovery
+slave machine reboot
+executor crash
+etcd crash
+etcd misconfiguration
+etcd loss of quorum
+etcd complete loss
+
+stimuli
+------
+scheduler:
+  health checks
+  registered
+  reregistered
+  disconnected
+  resourceOffers
+  offerRescinded
+  statusUpdate
+  frameworkMessage
+  slaveLost
+  executorLost
+  error
+
+executor:
+  health checks
+  registered
+  reregistered
+  disconnected
+  launchTask
+  killTask
+  frameworkMessage
+  shutdown
+  error
+
+actions
+------
+  scheduler
+    spawn new cluster
+      when created for the first time, no backup requested
+    restore cluster from backup
+    deregister
+      when task lost happens, perhaps on particularly gruesome health check results
+    spawn
+      when we're below specified membership
+
+  executor
+    single task per executor
+    health check
+    register
+    perform health checks occasionally - kill task if configuration appears fubar
+    send status updates
+    coordinate regular backup to s3/hdfs/nfs/scheduler sandbox fallback
+      upon request
+      upon quorum loss
+
+states
+------
+  scheduler
+    initialize
+      gang schedule N
+      if supplied snapshot
+        launch N based on supplied snapshot
+      else
+        launch N new
+    monitor
+      if unhealthy + task (finished|failed|killed|lost|error) (+ threshold of failures? or if task lost is it lost cause?)
+        goto heal
+    heal
+      etcd remove lost
+      if healthy # < N/2+1
+        try to make snapshot
+        kill tasks
+        goto initialize
+      accept new offer
+    terminate
+      kill tasks
+
+  executor
+    initialize
+    monitor
+    terminate
+      kill tasks
+
+gotchas
+------
+* if we add a node, it increases the failure domain until it actually joins
+* names should be unique due to framework failover resetting tasksLaunched
+* when we go from 1->2 nodes, the cluster livelocks before the second node is added
+  raft with 1 -> needs 1 to grow cluster
+  after cluster is grown, it needs 2, but the second node is not up yet
+* if we try to launch with a different set of peers than is currently
+  listed in member list, etcd will fail with "member count is unequal"
+  or "unmatched member while checking PeerURLs"
+* always use unique names for instances and empty data directories
+
+* panic:
+  initialize with bad config (nodes 1 and 3, without 2)
+  member add third node with identical name as 2
+  start 3 with name 2
+  node 3 will crash due to commit index
+    2015/06/10 12:02:30 raft: 2c0064636e91668b [logterm: 0, index: 1849] rejected msgApp [logterm: 2, index: 1849] from 7d82c6ceeb720f14
+    2015/06/10 12:02:30 raft: tocommit(1862) is out of range [lastIndex(0)]
+    panic: tocommit(1862) is out of range [lastIndex(0)]
+  rm data dir for 3 and restart
+  node 2 will crash with:
+    2015/06/10 12:03:06 raft: tocommit(1935) is out of range [lastIndex(1934)]
+    panic: tocommit(1935) is out of range [lastIndex(1934)]
+
+----- long node 3 crash ----
+2015/06/10 12:02:30 raft: 2c0064636e91668b [logterm: 0, index: 1849] rejected msgApp [logterm: 2, index: 1849] from 7d82c6ceeb720f14
+2015/06/10 12:02:30 raft: tocommit(1862) is out of range [lastIndex(0)]
+panic: tocommit(1862) is out of range [lastIndex(0)]
+----- node 2 subsequent crash after node 3 is restarted with empty dir -----
+2015/06/10 12:03:04 rafthttp: failed to dial stream message (dial tcp 127.0.0.1:31004: connection refused)
+2015/06/10 12:03:04 rafthttp: failed to dial stream msgappv2 (dial tcp 127.0.0.1:31004: connection refused)
+2015/06/10 12:03:04 rafthttp: failed to dial stream msgappv2 (dial tcp 127.0.0.1:31004: connection refused)
+2015/06/10 12:03:04 rafthttp: failed to dial stream message (dial tcp 127.0.0.1:31004: connection refused)
+2015/06/10 12:03:04 rafthttp: failed to dial stream message (dial tcp 127.0.0.1:31004: connection refused)
+2015/06/10 12:03:04 rafthttp: failed to dial stream msgappv2 (dial tcp 127.0.0.1:31004: connection refused)
+2015/06/10 12:03:04 rafthttp: failed to dial stream msgappv2 (dial tcp 127.0.0.1:31004: connection refused)
+2015/06/10 12:03:04 rafthttp: failed to dial stream message (dial tcp 127.0.0.1:31004: connection refused)
+2015/06/10 12:03:06 rafthttp: failed to dial stream message (remote member 13d9aa3ecdcea14d could not recognize local member)
+2015/06/10 12:03:06 rafthttp: failed to dial stream msgappv2 (remote member 13d9aa3ecdcea14d could not recognize local member)
+2015/06/10 12:03:06 rafthttp: failed to dial stream message (remote member 13d9aa3ecdcea14d could not recognize local member)
+2015/06/10 12:03:06 rafthttp: failed to dial stream msgappv2 (remote member 13d9aa3ecdcea14d could not recognize local member)
+2015/06/10 12:03:06 raft: tocommit(1935) is out of range [lastIndex(1934)]
+panic: tocommit(1935) is out of range [lastIndex(1934)]
+
+goroutine 26 [running]:
+github.com/coreos/etcd/Godeps/_workspace/src/github.com/coreos/pkg/capnslog.(*PackageLogger).Panicf(0xc20801ec40, 0x9a68d0, 0x2c, 0xc208947d40, 0x2, 0x2)
+        /home/tyler/src/go/src/github.com/mesosphere/etcd-mesos/vendor/coreos/etcd/gopath/src/github.com/coreos/etcd/Godeps/_workspace/src/github.com/coreos/pkg/capnslog/pkg
+_logger.go:59 +0x185
+github.com/coreos/etcd/raft.(*raftLog).commitTo(0xc20804a550, 0x78f)
+        /home/tyler/src/go/src/github.com/mesosphere/etcd-mesos/vendor/coreos/etcd/gopath/src/github.com/coreos/etcd/raft/log.go:176 +0x182
+github.com/coreos/etcd/raft.(*raft).handleHeartbeat(0xc2080f60c0, 0x8, 0x2c0064636e91668b, 0x7d82c6ceeb720f14, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, ...)
+        /home/tyler/src/go/src/github.com/mesosphere/etcd-mesos/vendor/coreos/etcd/gopath/src/github.com/coreos/etcd/raft/raft.go:667 +0x47
+github.com/coreos/etcd/raft.stepFollower(0xc2080f60c0, 0x8, 0x2c0064636e91668b, 0x7d82c6ceeb720f14, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, ...)
+        /home/tyler/src/go/src/github.com/mesosphere/etcd-mesos/vendor/coreos/etcd/gopath/src/github.com/coreos/etcd/raft/raft.go:632 +0x1024
+github.com/coreos/etcd/raft.(*raft).Step(0xc2080f60c0, 0x8, 0x2c0064636e91668b, 0x7d82c6ceeb720f14, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, ...)
+        /home/tyler/src/go/src/github.com/mesosphere/etcd-mesos/vendor/coreos/etcd/gopath/src/github.com/coreos/etcd/raft/raft.go:487 +0x259
+github.com/coreos/etcd/raft.(*node).run(0xc20804a5a0, 0xc2080f60c0)
+        /home/tyler/src/go/src/github.com/mesosphere/etcd-mesos/vendor/coreos/etcd/gopath/src/github.com/coreos/etcd/raft/node.go:285 +0x6ab
+created by github.com/coreos/etcd/raft.StartNode
+        /home/tyler/src/go/src/github.com/mesosphere/etcd-mesos/vendor/coreos/etcd/gopath/src/github.com/coreos/etcd/raft/node.go:178 +0x4b6
+
+
+certification
+------
+01. Scheduler MUST register with a failover timeout
+02. Scheduler MUST persist FrameworkID for failover
+03. Scheduler MUST recover from process termination
+04. Scheduler MUST enable checkpointing.
+05. Scheduler MUST decline offers it doesn’t need.
+06. Scheduler MUST only use the necessary fraction of an offer.
+07. Executor MUST NOT rely on being run on a particular node.
+08. Service MUST NOT require anything to be pre-installed on a node.
+09. Service MUST use standard DCOS packaging.
+10. Configuration MUST be via CLI parameters or environment variables.
+11. Scheduler MUST provide a health check.
+12. Scheduler MUST support a custom FrameworkInfo.name.
+13. Scheduler MUST support a custom FrameworkInfo.role.
+14. Scheduler SHOULD provide FrameworkInfo.webui_url
+15. Scheduler MUST reconcile tasks during failover.
+16. Scheduler MUST use a reliable store for persistent state.
+17. Scheduler MUST distribute its own binaries for executor and tasks.
+18. Executors SHOULD kill their tasks if they themselves terminate.
+19. Executors MUST only persist data in approved locations.
+20. Executors MUST use dynamic ports.
+21. Executors of the same Service type MUST safely co-exist on a given node.
+22. Service MUST recover from lost executors and tasks.
+23. Service MAY provide a DCOS CLI.
+24. A Service with DCOS CLI MUST implement the minimum command set.
+25. A Service with DCOS CLI MUST be driven by HTTP APIs.
+26. Scheduler MUST support a custom FrameworkInfo.user.
+27. Scheduler MUST support framework authentication.
+28. Scheduler MUST validate version of Mesos.
+29. Service MUST pass Mesosphere’s Service Resiliency Test.
+30. Service MUST be uninstallable.
+31. Service MUST be documented.
+32. Service MUST be supported.

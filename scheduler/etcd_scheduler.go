@@ -483,7 +483,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	tasks := []*mesos.TaskInfo{task}
 	log.Infoln("Launching ", len(tasks), "tasks for offer", offer.Id.GetValue())
 	// TODO(tyler) move configuration to executor
-	go rpc.ConfigureInstance(s.running, task.GetTaskId().GetValue())
+	go rpc.ConfigureInstance(s.running, instance.Name)
 	// TODO(tyler) persist failover state (pending task)
 	driver.LaunchTasks(
 		[]*mesos.OfferID{offer.Id},

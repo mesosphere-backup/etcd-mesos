@@ -48,34 +48,42 @@ func ConfigureInstance(running map[string]*common.EtcdConfig, task string) {
 		return
 	}
 	log.Infof("trying to reconfigure cluster for newInstance %+v", newInstance)
-	for id, args := range running {
-		if id == task {
-			continue
+	for retries := 0; retries < 5; retries++ {
+		for id, args := range running {
+			if id == task {
+				continue
+			}
+			url := fmt.Sprintf(
+				"http://%s:%d/v2/members",
+				args.Host,
+				args.ClientPort)
+			data := fmt.Sprintf(
+				`{"peerURLs": ["http://%s:%d"]}`,
+				newInstance.Host,
+				newInstance.RpcPort)
+
+			req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(data)))
+			req.Header.Set("Content-Type", "application/json")
+
+			client := &http.Client{
+				Timeout: time.Second * 5,
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+			defer resp.Body.Close()
+
+			body, _ := ioutil.ReadAll(resp.Body)
+			log.Info("ConfigureInstance response: ", string(body))
+			if strings.HasPrefix(string(body), "Added member") {
+				// Successfully added new member.
+				return
+			}
+			// TODO(tyler) check response, and return if it's valid
+			// TODO(tyler) invariant: member list should now contain node
 		}
-		url := fmt.Sprintf(
-			"http://%s:%d/v2/members",
-			args.Host,
-			args.ClientPort)
-		data := fmt.Sprintf(
-			`{"peerURLs": ["http://%s:%d"]}`,
-			newInstance.Host,
-			newInstance.RpcPort)
-
-		req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(data)))
-		req.Header.Set("Content-Type", "application/json")
-
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Error(err)
-			continue
-		}
-		defer resp.Body.Close()
-
-		body, _ := ioutil.ReadAll(resp.Body)
-		log.Info("ConfigureInstance response: ", string(body))
-		// TODO(tyler) check response, and return if it's valid
-		// TODO(tyler) invariant: member list should now contain node
 	}
 }
 

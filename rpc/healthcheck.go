@@ -70,20 +70,20 @@ func HealthCheck(running map[string]*common.EtcdConfig) error {
 
 	if validEndpoint == "" {
 		log.Error("Leader could not be determined.")
-		return common.NoLeaderError{}
+		return common.ErrNoLeader
 	}
 
 	client := etcd.NewClient([]string{validEndpoint})
 	if ok := client.SyncCluster(); !ok {
 		log.Error("Could not establish connection "+
 			"with cluster using endpoints %+v", validEndpoint)
-		return common.EtcdConnectionError{}
+		return common.ErrEtcdConnection
 	}
 
 	resp1, err := client.Get("/", false, false)
 	if err != nil {
-		log.Error("Could not query cluster!")
-		return common.EtcdEndpointError{Err: err}
+		log.Errorf("Could not query cluster: %s", err)
+		return common.ErrEtcdEndpoint
 	}
 
 	// Give the cluster some time to propagate AppendEntries.
@@ -91,20 +91,20 @@ func HealthCheck(running map[string]*common.EtcdConfig) error {
 
 	resp2, err := client.Get("/", false, false)
 	if err != nil {
-		log.Error("Could not query cluster!")
-		return common.EtcdEndpointError{Err: err}
+		log.Errorf("Could not query cluster: %s", err)
+		return common.ErrEtcdEndpoint
 	}
 
 	if resp1.RaftTerm != resp2.RaftTerm {
 		log.Error("Raft terms has increased while monitoring for " +
 			"1 second.  Leader is unstable.")
-		return common.EtcdRaftTermInstabilityError{}
+		return common.ErrEtcdRaftTermInstability
 	}
 
 	if resp1.RaftIndex == resp2.RaftIndex {
 		log.Error("Raft commit index has not increased while " +
 			"monitoring for 1 second.  The cluster is not making progress.")
-		return common.EtcdRaftStallError{}
+		return common.ErrEtcdRaftStall
 	}
 	return nil
 }

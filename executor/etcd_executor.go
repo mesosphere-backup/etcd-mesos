@@ -1,4 +1,4 @@
-// +build etcd-e
+// +build etcd-executor
 
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -23,9 +23,8 @@ package main
 import (
 	"flag"
 	"os"
-	goexec "os/exec"
+	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	log "github.com/golang/glog"
@@ -33,20 +32,21 @@ import (
 	mesos "github.com/mesos/mesos-go/mesosproto"
 )
 
-var (
-	etcdCmd = flag.String("exec", "", "Etcd command to launch")
+const (
+	MESOS_MAX_SLAVE_PING_TIMEOUTS = 5
+	MESOS_SLAVE_PING_TIMEOUT      = 15 * time.Second
 )
 
 type etcdExecutor struct {
-	sync.Mutex
 	cancelSuicide chan struct{}
 	tasksLaunched int
+	etcdCmd       string
 }
 
-func newEtcdExecutor() *etcdExecutor {
+func newEtcdExecutor(etcdCmd string) *etcdExecutor {
 	return &etcdExecutor{
 		cancelSuicide: make(chan struct{}),
-		tasksLaunched: 0,
+		etcdCmd:       etcdCmd,
 	}
 }
 
@@ -64,19 +64,22 @@ func (e *etcdExecutor) Reregistered(
 	slaveInfo *mesos.SlaveInfo,
 ) {
 	log.Infoln("Re-registered Executor on slave ", slaveInfo.GetHostname())
-	e.Lock()
 	close(e.cancelSuicide)
 	e.cancelSuicide = make(chan struct{})
-	e.Unlock()
 }
 
 func (e *etcdExecutor) Disconnected(executor.ExecutorDriver) {
 	log.Infoln("Executor disconnected.")
+	const suicideTimeout = ((MESOS_MAX_SLAVE_PING_TIMEOUTS + 1) *
+		MESOS_SLAVE_PING_TIMEOUT)
 	go func() {
 		select {
 		case <-e.cancelSuicide:
-		case <-time.After(120 * time.Second):
-			log.Fatalf("Lost connection to slave for 120 seconds.  Exiting.")
+		case <-time.After(suicideTimeout):
+			log.Fatalf("Lost connection to local slave for %s seconds. "+
+				"This is longer than the mesos master<->slave timeout, so "+
+				"we cannot avoid termination at this point. Exiting.",
+				suicideTimeout/time.Second)
 		}
 	}()
 }
@@ -105,11 +108,10 @@ func (e *etcdExecutor) LaunchTask(
 	log.Infoln("Total tasks launched ", e.tasksLaunched)
 
 	go func() {
-		log.Infoln("calling command: ", *etcdCmd)
-		parts := strings.Fields(*etcdCmd)
-		head := parts[0]
-		tail := parts[1:len(parts)]
-		command := goexec.Command(head, tail...)
+		log.Infoln("calling command: ", e.etcdCmd)
+		parts := strings.Fields(e.etcdCmd)
+		head, tail := parts[0], parts[1:]
+		command := exec.Command(head, tail...)
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stdout
 		command.Start()
@@ -152,15 +154,14 @@ func (e *etcdExecutor) Error(driver executor.ExecutorDriver, err string) {
 }
 
 // -------------------------- entrypoints ----------------- //
-func init() {
-	flag.Parse()
-}
-
 func main() {
+	etcdCmd := flag.String("exec", "", "Etcd command to launch")
+	flag.Parse()
+
 	log.Infoln("Starting Etcd Executor")
 
 	dconfig := executor.DriverConfig{
-		Executor: newEtcdExecutor(),
+		Executor: newEtcdExecutor(*etcdCmd),
 	}
 	driver, err := executor.NewMesosExecutorDriver(dconfig)
 

@@ -18,34 +18,12 @@
 
 package common
 
-type NoLeaderError struct{}
+import "errors"
 
-func (e NoLeaderError) Error() string {
-	return "no raft leader found"
-}
-
-type EtcdConnectionError struct{}
-
-func (e EtcdConnectionError) Error() string {
-	return "could not contact endpoint"
-}
-
-type EtcdEndpointError struct {
-	Err error
-}
-
-func (e EtcdEndpointError) Error() string {
-	return "Could not query cluster: " + e.Err.Error()
-}
-
-type EtcdRaftTermInstabilityError struct{}
-
-func (e EtcdRaftTermInstabilityError) Error() string {
-	return "Raft term (and leader) is unstable."
-}
-
-type EtcdRaftStallError struct{}
-
-func (e EtcdRaftStallError) Error() string {
-	return "non-increasing raft commit index"
-}
+var (
+	ErrNoLeader                = errors.New("no raft leader found")
+	ErrEtcdConnection          = errors.New("could not contact endpoint")
+	ErrEtcdEndpoint            = errors.New("Could not query cluster")
+	ErrEtcdRaftTermInstability = errors.New("Raft term (and leader) is unstable.")
+	ErrEtcdRaftStall           = errors.New("non-increasing raft commit index")
+)

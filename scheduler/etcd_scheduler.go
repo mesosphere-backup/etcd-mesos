@@ -78,34 +78,30 @@ const (
 	Exiting
 )
 
-var (
-	restorePath            = flag.String("restore", "", "Local path or URI for an etcd backup to restore as a new cluster.")
-	master                 = flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
-	executorPath           = flag.String("executor", "./bin/etcd_executor", "Path to test executor")
-	etcdPath               = flag.String("etcd", "./bin/etcd", "Path to test executor")
-	clusterName            = flag.String("clusterName", "default", "Unique name of this etcd cluster")
-	zkConnect              = flag.String("zk", "", "zookeeper URI")
-	zkChroot               = ""
-	zkServers              = []string{}
-	taskCount              = flag.Int("task-count", 5, "Total task count to run.")
-	singleInstancePerSlave = flag.Bool("single-instance-per-slave", true, "Only allow one etcd instance to be started per slave.")
-	mesosAuthPrincipal     = flag.String("mesos_authentication_principal", "", "Mesos authentication principal.")
-	mesosAuthSecretFile    = flag.String("mesos_authentication_secret_file", "", "Mesos authentication secret file.")
-	address                = flag.String("address", "127.0.0.1", "Binding address for artifact server")
-	artifactPort           = flag.Int("artifactPort", 12345, "Binding port for artifact server") // TODO(tyler) require this to be passed in
-	authProvider           = flag.String("mesos_authentication_provider", sasl.ProviderName,
-		fmt.Sprintf("Authentication provider to use, default is SASL that supports mechanisms: %+v", mech.ListSupported()))
-)
-
 type EtcdScheduler struct {
-	sync.RWMutex
-	state             State
-	executorUris      []*mesos.CommandInfo_URI
-	highestInstanceID int64
-	running           map[string]*common.EtcdConfig
-	offerCache        *offercache.OfferCache
-	launchChan        chan struct{}
-	pauseChan         chan struct{}
+	mut                    sync.RWMutex
+	state                  State
+	executorUris           []*mesos.CommandInfo_URI
+	highestInstanceID      int64
+	running                map[string]*common.EtcdConfig
+	offerCache             *offercache.OfferCache
+	launchChan             chan struct{}
+	pauseChan              chan struct{}
+	restorePath            string
+	master                 string
+	executorPath           string
+	etcdPath               string
+	clusterName            string
+	zkConnect              string
+	zkChroot               string
+	zkServers              []string
+	taskCount              int
+	singleInstancePerSlave bool
+	mesosAuthPrincipal     string
+	mesosAuthSecretFile    string
+	address                string
+	artifactPort           int
+	authProvider           string
 }
 
 type EtcdParams struct {
@@ -126,9 +122,7 @@ func newEtcdScheduler(executorUris []*mesos.CommandInfo_URI) *EtcdScheduler {
 		highestInstanceID: time.Now().Unix(),
 		executorUris:      executorUris,
 		running:           make(map[string]*common.EtcdConfig),
-		offerCache:        offercache.NewOfferCache(*taskCount),
-		launchChan:        make(chan struct{}, *taskCount*2048),
-		pauseChan:         make(chan struct{}, *taskCount*2048),
+		zkServers:         []string{},
 	}
 }
 
@@ -142,8 +136,8 @@ func (s *EtcdScheduler) Registered(
 	// Pump the brakes to allow some time for reconciliation.
 	s.pauseChan <- struct{}{}
 	s.pauseChan <- struct{}{}
-	if *zkConnect != "" {
-		err := persistFrameworkID(frameworkId)
+	if s.zkConnect != "" {
+		err := persistFrameworkID(frameworkId, s.zkServers, s.zkChroot, s.clusterName)
 		if err != nil && err != zk.ErrNodeExists {
 			log.Fatalf("Failed to persist framework ID: %s", err)
 		} else if err == zk.ErrNodeExists {
@@ -189,17 +183,17 @@ func (s *EtcdScheduler) ResourceOffers(
 		}
 
 		alreadyUsingSlave := false
-		s.RLock()
+		s.mut.RLock()
 		for _, config := range s.running {
 			if config.SlaveID == offer.GetSlaveId().GetValue() {
 				alreadyUsingSlave = true
 				break
 			}
 		}
-		s.RUnlock()
+		s.mut.RUnlock()
 		if alreadyUsingSlave {
 			log.Infoln("Already using this slave for etcd instance.")
-			if *singleInstancePerSlave {
+			if s.singleInstancePerSlave {
 				log.Infoln("Skipping offer.")
 				continue
 			}
@@ -237,10 +231,24 @@ func (s *EtcdScheduler) StatusUpdate(
 		status.State.Enum().String(),
 	)
 
-	s.Lock()
-	defer s.Unlock()
+	s.mut.Lock()
+	defer s.mut.Unlock()
 
-	if status.GetState() == mesos.TaskState_TASK_RUNNING {
+	switch status.GetState() {
+	case mesos.TaskState_TASK_LOST,
+		mesos.TaskState_TASK_FINISHED,
+		mesos.TaskState_TASK_KILLED,
+		mesos.TaskState_TASK_ERROR,
+		mesos.TaskState_TASK_FAILED:
+		delete(s.running, status.TaskId.GetValue())
+		go func() {
+			rpc.RemoveInstance(s.running, status.GetTaskId().GetValue())
+			// Allow some time for out-of-quorum followers to hopefully sync the change.
+			// TODO(tyler) is this necessary?
+			time.Sleep(3 * time.Second)
+			s.launchChan <- struct{}{}
+		}()
+	case mesos.TaskState_TASK_RUNNING:
 		etcdConfig := common.EtcdConfig{}
 		err := json.Unmarshal([]byte(status.GetTaskId().GetValue()), &etcdConfig)
 		if err != nil {
@@ -276,26 +284,13 @@ func (s *EtcdScheduler) StatusUpdate(
 			s.running[etcdConfig.Name] = &etcdConfig
 		}
 
-		if len(s.running) < *taskCount {
+		if len(s.running) < s.taskCount {
 			s.state = Healing
 		} else {
 			s.state = Monitoring
 		}
-	}
-
-	if status.GetState() == mesos.TaskState_TASK_LOST ||
-		status.GetState() == mesos.TaskState_TASK_FINISHED ||
-		status.GetState() == mesos.TaskState_TASK_KILLED ||
-		status.GetState() == mesos.TaskState_TASK_ERROR ||
-		status.GetState() == mesos.TaskState_TASK_FAILED {
-		delete(s.running, status.TaskId.GetValue())
-		go func() {
-			rpc.RemoveInstance(s.running, status.GetTaskId().GetValue())
-			// Allow some time for out-of-quorum followers to hopefully sync the change.
-			// TODO(tyler) is this necessary?
-			time.Sleep(3 * time.Second)
-			s.launchChan <- struct{}{}
-		}()
+	default:
+		log.Warningf("Received unhandled task state: %+v", status.GetState())
 	}
 
 	if len(s.running) == 0 {
@@ -339,7 +334,7 @@ func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 	log.Infoln("Scheduler received error:", err)
 	if err == "Completed framework attempted to re-register" {
 		// TODO(tyler) automatically restart, don't expect this to be restarted externally
-		clearZKState()
+		clearZKState(s.zkServers, s.zkChroot, s.clusterName)
 		log.Fatalf("Removing reference to completed framework in zookeeper and dying.")
 	}
 }
@@ -381,24 +376,24 @@ func (s *EtcdScheduler) SerialLauncher(driver scheduler.SchedulerDriver) {
 
 func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	log.Infoln("Attempting to launch a task.")
-	s.RLock()
+	s.mut.RLock()
 	nrunning := len(s.running)
-	s.RUnlock()
-	log.Infoln("nrunning: ", nrunning, " taskCount: ", *taskCount)
+	s.mut.RUnlock()
+	log.Infoln("nrunning: ", nrunning, " taskCount: ", s.taskCount)
 	log.Infof("running: %+v", s.running)
-	if nrunning >= *taskCount {
+	if nrunning >= s.taskCount {
 		log.Infoln("Already running enough tasks.")
 		return
 	}
 
 	offer := s.offerCache.BlockingPop()
-	s.Lock()
-	defer s.Unlock()
+	s.mut.Lock()
+	defer s.mut.Unlock()
 	for _, etcdConfig := range s.running {
 		if etcdConfig.SlaveID == offer.SlaveId.GetValue() {
 			log.Infoln("Already running an etcd instance on this slave.")
 			// TODO(tyler) should we be dropping this offer here or requeueing it?
-			if *singleInstancePerSlave {
+			if s.singleInstancePerSlave {
 				return
 			}
 			log.Infoln("Launching anyway due to -single-instance-per-slave " +
@@ -407,7 +402,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	}
 
 	nrunning = len(s.running)
-	if nrunning >= *taskCount {
+	if nrunning >= s.taskCount {
 		s.offerCache.Push(offer)
 		log.Infoln("Already running enough tasks.")
 		return
@@ -455,7 +450,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		Value: &stringSerializedConfig,
 	}
 
-	executor := prepareExecutorInfo(instance, s.executorUris, config)
+	executor := s.prepareExecutorInfo(instance, s.executorUris, config)
 	task := &mesos.TaskInfo{
 		Name:     proto.String(name),
 		TaskId:   taskId,
@@ -473,6 +468,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 
 	// TODO(tyler) put this in pending, not running.  would also need rate limit or something.
 	s.running[instance.Name] = instance
+
 	log.Infof(
 		"Prepared task: %s with offer %s for launch\n",
 		task.GetName(),
@@ -485,6 +481,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	// TODO(tyler) move configuration to executor
 	go rpc.ConfigureInstance(s.running, instance.Name)
 	// TODO(tyler) persist failover state (pending task)
+
 	driver.LaunchTasks(
 		[]*mesos.OfferID{offer.Id},
 		tasks,
@@ -536,7 +533,7 @@ func parseOffer(offer *mesos.Offer) OfferResources {
 	}
 }
 
-func serveExecutorArtifact(path string) *string {
+func serveExecutorArtifact(path, address string, artifactPort int) *string {
 	serveFile := func(pattern string, filename string) {
 		http.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			http.ServeFile(w, r, filename)
@@ -553,17 +550,17 @@ func serveExecutorArtifact(path string) *string {
 	}
 	serveFile("/"+base, path)
 
-	hostURI := fmt.Sprintf("http://%s:%d/%s", *address, *artifactPort, base)
+	hostURI := fmt.Sprintf("http://%s:%d/%s", address, artifactPort, base)
 	log.V(2).Infof("Hosting artifact '%s' at '%s'", path, hostURI)
 
 	return &hostURI
 }
 
-func prepareExecutorInfo(instance *common.EtcdConfig,
+func (s *EtcdScheduler) prepareExecutorInfo(instance *common.EtcdConfig,
 	executorUris []*mesos.CommandInfo_URI,
 	etcdExec string) *mesos.ExecutorInfo {
 
-	_, executorBin := filepath.Split(*executorPath)
+	_, executorBin := filepath.Split(s.executorPath)
 	executorCommand := fmt.Sprintf("./%s -exec=\"%s\" -log_dir=./",
 		executorBin,
 		etcdExec)
@@ -645,7 +642,7 @@ func parseZKURI(zkURI string) (servers []string, chroot string, err error) {
 	return servers, chroot, nil
 }
 
-func persistFrameworkID(fwid *mesos.FrameworkID) error {
+func persistFrameworkID(fwid *mesos.FrameworkID, zkServers []string, zkChroot string, clusterName string) error {
 	c, _, err := zk.Connect(zkServers, time.Second*5)
 	if err != nil {
 		return err
@@ -662,7 +659,7 @@ func persistFrameworkID(fwid *mesos.FrameworkID) error {
 		return err
 	}
 	// attempt to write framework ID to <path> / <clusterName>
-	_, err = c.Create(zkChroot+"/"+*clusterName,
+	_, err = c.Create(zkChroot+"/"+clusterName,
 		[]byte(fwid.GetValue()),
 		0,
 		zk.WorldACL(zk.PermAll))
@@ -675,48 +672,99 @@ func persistFrameworkID(fwid *mesos.FrameworkID) error {
 	return nil
 }
 
-func getPreviousFrameworkID() (string, error) {
+func getPreviousFrameworkID(zkServers []string, zkChroot string, clusterName string) (string, error) {
 	c, _, err := zk.Connect(zkServers, time.Second*5)
 	if err != nil {
 		return "", err
 	}
 	defer c.Close()
-	rawData, _, err := c.Get(zkChroot + "/" + *clusterName)
+	rawData, _, err := c.Get(zkChroot + "/" + clusterName)
 	return string(rawData), err
 }
 
 // TODO(tyler) make this more testable.
-func clearZKState() error {
+func clearZKState(zkServers []string, zkChroot string, clusterName string) error {
 	c, _, err := zk.Connect(zkServers, time.Second*5)
 	if err != nil {
 		return err
 	}
 	defer c.Close()
-	return c.Delete(zkChroot+"/"+*clusterName, -1)
+	return c.Delete(zkChroot+"/"+clusterName, -1)
 }
 
 // ----------------------- entry point ------------------------- //
 
-func init() {
-	flag.Parse()
-	var err error
-	zkServers, zkChroot, err = parseZKURI(*zkConnect)
-	if err != nil && *zkConnect != "" {
-		log.Fatalf("Error parsing zookeeper URI of %s: %s", *zkConnect, err)
-	}
-	log.Infoln("Initializing the Etcd Scheduler...")
-}
-
 func main() {
+	executorPath := flag.String("executor", "./bin/etcd_executor", "Path to test executor")
+	etcdPath := flag.String("etcd", "./bin/etcd", "Path to test executor")
+	address := flag.String("address", "127.0.0.1", "Binding address for artifact server")
+	artifactPort := flag.Int("artifactPort", 12345, "Binding port for artifact server") // TODO(tyler) require this to be passed in
+	flag.Parse()
+
+	executorUris := []*mesos.CommandInfo_URI{}
+	execUri := serveExecutorArtifact(*executorPath, *address, *artifactPort)
+	executorUris = append(executorUris, &mesos.CommandInfo_URI{
+		Value:      execUri,
+		Executable: proto.Bool(true),
+	})
+	etcdUri := serveExecutorArtifact(*etcdPath, *address, *artifactPort)
+	executorUris = append(executorUris, &mesos.CommandInfo_URI{
+		Value:      etcdUri,
+		Executable: proto.Bool(true),
+	})
+
+	go http.ListenAndServe(fmt.Sprintf("%s:%d", *address, *artifactPort), nil)
+	log.V(2).Info("Serving executor artifacts...")
+
+	bindingAddress := parseIP(*address)
+
+	etcdScheduler := newEtcdScheduler(executorUris)
+	etcdScheduler.executorPath = *executorPath
+	etcdScheduler.address = *address
+	etcdScheduler.artifactPort = *artifactPort
+
+	flag.StringVar(&etcdScheduler.restorePath, "restore", "", "Local path or URI for an etcd backup to restore as a new cluster.")
+	flag.StringVar(&etcdScheduler.master, "master", "127.0.0.1:5050", "Master address <ip:port>")
+	flag.StringVar(&etcdScheduler.clusterName, "clusterName", "default", "Unique name of this etcd cluster")
+	flag.IntVar(&etcdScheduler.taskCount, "task-count", 5, "Total task count to run.")
+	flag.BoolVar(&etcdScheduler.singleInstancePerSlave, "single-instance-per-slave", true, "Only allow one etcd instance to be started per slave.")
+	flag.StringVar(&etcdScheduler.mesosAuthPrincipal, "mesos_authentication_principal", "", "Mesos authentication principal.")
+	flag.StringVar(&etcdScheduler.mesosAuthSecretFile, "mesos_authentication_secret_file", "", "Mesos authentication secret file.")
+	flag.StringVar(&etcdScheduler.authProvider, "mesos_authentication_provider", sasl.ProviderName,
+		fmt.Sprintf("Authentication provider to use, default is SASL that supports mechanisms: %+v", mech.ListSupported()))
+
+	zkConnect := flag.String("zk", "", "zookeeper URI")
+	flag.Parse()
 	fwinfo := &mesos.FrameworkInfo{
 		User:            proto.String(""), // Mesos-go will fill in user.
-		Name:            proto.String("etcd: " + *clusterName),
+		Name:            proto.String("etcd: " + etcdScheduler.clusterName),
 		FailoverTimeout: proto.Float64(60), // TODO(tyler) increase this
 		// TODO(tyler) Role: proto.String("etcd_scheduler"),
 	}
 
-	if *zkConnect != "" {
-		previous, err := getPreviousFrameworkID()
+	cred := (*mesos.Credential)(nil)
+	if etcdScheduler.mesosAuthPrincipal != "" {
+		fwinfo.Principal = proto.String(etcdScheduler.mesosAuthPrincipal)
+		secret, err := ioutil.ReadFile(etcdScheduler.mesosAuthSecretFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		cred = &mesos.Credential{
+			Principal: proto.String(etcdScheduler.mesosAuthPrincipal),
+			Secret:    secret,
+		}
+	}
+
+	etcdScheduler.offerCache = offercache.NewOfferCache(etcdScheduler.taskCount)
+	etcdScheduler.launchChan = make(chan struct{}, etcdScheduler.taskCount*2048)
+	etcdScheduler.pauseChan = make(chan struct{}, etcdScheduler.taskCount*2048)
+	zkServers, zkChroot, err := parseZKURI(*zkConnect)
+	etcdScheduler.zkServers = zkServers
+	etcdScheduler.zkChroot = zkChroot
+	if err != nil && *zkConnect != "" {
+		log.Fatalf("Error parsing zookeeper URI of %s: %s", *zkConnect, err)
+	} else if *zkConnect != "" {
+		previous, err := getPreviousFrameworkID(zkServers, zkChroot, etcdScheduler.clusterName)
 		if err != nil && err != zk.ErrNoNode {
 			log.Fatalf("Could not retrieve previous framework ID: %s", err)
 		} else if err == zk.ErrNoNode {
@@ -729,44 +777,14 @@ func main() {
 		}
 	}
 
-	cred := (*mesos.Credential)(nil)
-	if *mesosAuthPrincipal != "" {
-		fwinfo.Principal = proto.String(*mesosAuthPrincipal)
-		secret, err := ioutil.ReadFile(*mesosAuthSecretFile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		cred = &mesos.Credential{
-			Principal: proto.String(*mesosAuthPrincipal),
-			Secret:    secret,
-		}
-	}
-
-	executorUris := []*mesos.CommandInfo_URI{}
-	execUri := serveExecutorArtifact(*executorPath)
-	executorUris = append(executorUris, &mesos.CommandInfo_URI{
-		Value:      execUri,
-		Executable: proto.Bool(true),
-	})
-	etcdUri := serveExecutorArtifact(*etcdPath)
-	executorUris = append(executorUris, &mesos.CommandInfo_URI{
-		Value:      etcdUri,
-		Executable: proto.Bool(true),
-	})
-
-	go http.ListenAndServe(fmt.Sprintf("%s:%d", *address, *artifactPort), nil)
-	log.V(2).Info("Serving executor artifacts...")
-
-	bindingAddress := parseIP(*address)
-	etcdScheduler := newEtcdScheduler(executorUris)
 	config := scheduler.DriverConfig{
 		Scheduler:      etcdScheduler,
 		Framework:      fwinfo,
-		Master:         *master,
+		Master:         etcdScheduler.master,
 		Credential:     cred,
 		BindingAddress: bindingAddress,
 		WithAuthContext: func(ctx context.Context) context.Context {
-			ctx = auth.WithLoginProvider(ctx, *authProvider)
+			ctx = auth.WithLoginProvider(ctx, etcdScheduler.authProvider)
 			ctx = sasl.WithBindingAddress(ctx, bindingAddress)
 			return ctx
 		},

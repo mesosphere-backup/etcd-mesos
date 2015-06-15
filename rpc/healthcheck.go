@@ -53,7 +53,7 @@ func HealthCheck(running map[string]*common.EtcdConfig) error {
 
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			log.Errorf("could not query %s for leader stats", url)
+			log.Errorf("Could not query %s for leader stats", url)
 			continue
 		}
 		fmt.Println("Leader stats response:", string(body))

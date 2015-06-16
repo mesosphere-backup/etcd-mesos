@@ -1,5 +1,3 @@
-// +build etcd-executor
-
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -18,10 +16,9 @@
  * limitations under the License.
  */
 
-package main
+package executor
 
 import (
-	"flag"
 	"os"
 	"os/exec"
 	"strings"
@@ -43,7 +40,7 @@ type etcdExecutor struct {
 	etcdCmd       string
 }
 
-func newEtcdExecutor(etcdCmd string) *etcdExecutor {
+func NewEtcdExecutor(etcdCmd string) *etcdExecutor {
 	return &etcdExecutor{
 		cancelSuicide: make(chan struct{}),
 		etcdCmd:       etcdCmd,
@@ -151,29 +148,4 @@ func (e *etcdExecutor) Shutdown(executor.ExecutorDriver) {
 
 func (e *etcdExecutor) Error(driver executor.ExecutorDriver, err string) {
 	log.Infoln("Got error message:", err)
-}
-
-// -------------------------- entrypoints ----------------- //
-func main() {
-	etcdCmd := flag.String("exec", "", "Etcd command to launch")
-	flag.Parse()
-
-	log.Infoln("Starting Etcd Executor")
-
-	dconfig := executor.DriverConfig{
-		Executor: newEtcdExecutor(*etcdCmd),
-	}
-	driver, err := executor.NewMesosExecutorDriver(dconfig)
-
-	if err != nil {
-		log.Infoln("Unable to create a ExecutorDriver ", err.Error())
-	}
-
-	_, err = driver.Start()
-	if err != nil {
-		log.Infoln("Got error:", err)
-		return
-	}
-	log.Infoln("Executor process has started and running.")
-	driver.Join()
 }

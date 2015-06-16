@@ -7,7 +7,7 @@ bin:
 	-mkdir bin
 
 bin/etcd_executor:
-	go build -o bin/etcd_executor executor/etcd_executor.go
+	go build -o bin/etcd_executor executor/main/main.go
 
 bin/etcd:
 	git submodule init
@@ -15,4 +15,4 @@ bin/etcd:
 	cd vendor/coreos/etcd; ./build; mv bin/* ../../../bin/
   
 run-scheduler:
-	go run scheduler/etcd_scheduler.go -logtostderr=true
+	go run scheduler/main/main.go -logtostderr=true

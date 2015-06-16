@@ -229,7 +229,13 @@ func (s *EtcdScheduler) StatusUpdate(
 		mesos.TaskState_TASK_KILLED,
 		mesos.TaskState_TASK_ERROR,
 		mesos.TaskState_TASK_FAILED:
-		delete(s.running, status.TaskId.GetValue())
+		etcdConfig := common.EtcdConfig{}
+		err := json.Unmarshal([]byte(status.GetTaskId().GetValue()), &etcdConfig)
+		if err != nil {
+			log.Errorf("Could not deserialize taskid into EtcdConfig: %s", err)
+			break
+		}
+		delete(s.running, etcdConfig.Name)
 		go func() {
 			rpc.RemoveInstance(s.running, status.GetTaskId().GetValue())
 			// Allow some time for out-of-quorum followers to hopefully sync the change.

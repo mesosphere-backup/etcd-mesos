@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -50,7 +51,7 @@ func ConfigureInstance(
 		log.Info("No running members to configure.  Skipping configuration.")
 		return nil
 	}
-	// TODO(tyler) enforce invariant that all existing nodes must be healthy before adding a new one!
+	// TODO(tyler) invariant: all existing nodes must be healthy before adding a new one!
 	err := HealthCheck(running)
 	if err != nil {
 		log.Errorf("!!!! cluster failed health check: %+v", err)
@@ -103,7 +104,7 @@ func ConfigureInstance(
 		log.Warningf("Failed to configure cluster for new instance.  "+
 			"Backing off for %d seconds and retrying.", backoff)
 		time.Sleep(time.Duration(backoff) * time.Second)
-		backoff = backoff << 1
+		backoff = int(math.Min(float64(backoff<<1), 8))
 	}
 	return errors.New("Failed to configure cluster: no nodes reachable.")
 }
@@ -162,12 +163,12 @@ func MemberList(
 		log.Warningf("Failed to retrieve list of configured members.  "+
 			"Backing off for %d seconds and retrying.", backoff)
 		time.Sleep(time.Duration(backoff) * time.Second)
-		backoff = backoff << 1
+		backoff = int(math.Min(float64(backoff<<1), 8))
 	}
 	return nameToIdent, err
 }
 
-func RemoveInstance(running map[string]*common.EtcdConfig, task string) {
+func RemoveInstance(running map[string]*common.EtcdConfig, task string) error {
 	log.Infof("Attempting to remove task %s from "+
 		"the etcd cluster configuration.", task)
 	members, err := MemberList(running)
@@ -176,6 +177,7 @@ func RemoveInstance(running map[string]*common.EtcdConfig, task string) {
 	}
 	ident := members[task]
 	backoff := 1
+	var outerErr error
 	for retries := 0; retries < 5; retries++ {
 		for id, args := range running {
 			if id == task {
@@ -189,6 +191,7 @@ func RemoveInstance(running map[string]*common.EtcdConfig, task string) {
 
 			req, err := http.NewRequest("DELETE", url, nil)
 			if err != nil {
+				outerErr = err
 				log.Error(err)
 				continue
 			}
@@ -198,6 +201,7 @@ func RemoveInstance(running map[string]*common.EtcdConfig, task string) {
 			}
 			resp, err := client.Do(req)
 			if err != nil {
+				outerErr = err
 				log.Error(err)
 				continue
 			}
@@ -205,13 +209,16 @@ func RemoveInstance(running map[string]*common.EtcdConfig, task string) {
 
 			body, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
+				outerErr = err
 				log.Errorf("Problem removing instance for this attempt: %s", err)
 				continue
 			}
 			log.Info("RemoveInstance response: ", string(body))
 			if string(body) == "Method Not Allowed" {
-				log.Error("Received error response while trying to remove " +
+				err = errors.New("Received error response while trying to remove " +
 					"node from cluster configuration.")
+				outerErr = err
+				log.Error(err)
 				continue
 			}
 			var removeResponse struct {
@@ -220,18 +227,23 @@ func RemoveInstance(running map[string]*common.EtcdConfig, task string) {
 			err = json.Unmarshal(body, &removeResponse)
 			// TODO(tyler) invariant: member list should no longer contain node
 			if err != nil {
+				outerErr = err
 				log.Errorf("Received unexpected response: %s", string(body))
 				log.Errorf("Failed to unmarshal json: %s", err)
 				continue
 			}
-			if strings.HasPrefix(removeResponse.Message, "Member permanently removed") {
+			if strings.HasPrefix(
+				removeResponse.Message,
+				"Member permanently removed",
+			) {
 				log.Info("Successfully removed member from cluster configuration.")
-				return
+				return nil
 			}
 		}
 		log.Warningf("Failed to retrieve list of configured members.  "+
 			"Backing off for %d seconds and retrying.", backoff)
 		time.Sleep(time.Duration(backoff) * time.Second)
-		backoff = backoff << 1
+		backoff = int(math.Min(float64(backoff<<1), 8))
 	}
+	return outerErr
 }

@@ -44,11 +44,11 @@ import (
 )
 
 const (
-	CPUS_PER_TASK            = 1
-	MEM_PER_TASK             = 256
-	DISK_PER_TASK            = 1024
-	PORTS_PER_TASK           = 2
-	ETCD_INVOCATION_TEMPLATE = `./etcd --data-dir="etcd_data"
+	cpusPerTask            = 1
+	memPerTask             = 256
+	diskPerTask            = 1024
+	portsPerTask           = 2
+	etcdInvocationTemplate = `./etcd --data-dir="etcd_data"
 		--name="{{.Name}}"
 		--initial-cluster-state="{{.Type}}"
 		--listen-peer-urls="http://{{.Host}}:{{.RpcPort}}"
@@ -62,11 +62,18 @@ const (
 type State int32
 
 const (
-	Initializing State = iota
+	// The scheduler is Starting when it is adding the first node, optionally
+	// from a backup.
+	Starting State = iota
+	// The scheduler is Growing when it is adding new nodes.
+	Growing
+	// The scheduler is Restoring when it is restoring an etcd snapshot from
+	// S3, HDFS, or the local system.
 	Restoring
-	Monitoring
-	Healing
-	Exiting
+	// The scheduler is SteadyState when it is in steady state, running N nodes.
+	SteadyState
+	// The scheduler is Pruning when it is deconfiguring dead etcd instances.
+	Pruning
 )
 
 type EtcdScheduler struct {
@@ -102,9 +109,12 @@ type OfferResources struct {
 	ports []*mesos.Value_Range
 }
 
-func NewEtcdScheduler(taskCount int, executorUris []*mesos.CommandInfo_URI) *EtcdScheduler {
+func NewEtcdScheduler(
+	taskCount int,
+	executorUris []*mesos.CommandInfo_URI,
+) *EtcdScheduler {
 	return &EtcdScheduler{
-		state:             Initializing,
+		state:             Growing,
 		highestInstanceID: time.Now().Unix(),
 		executorUris:      executorUris,
 		running:           make(map[string]*common.EtcdConfig),
@@ -127,7 +137,12 @@ func (s *EtcdScheduler) Registered(
 	s.pauseChan <- struct{}{}
 	s.pauseChan <- struct{}{}
 	if s.ZkConnect != "" {
-		err := rpc.PersistFrameworkID(frameworkId, s.ZkServers, s.ZkChroot, s.ClusterName)
+		err := rpc.PersistFrameworkID(
+			frameworkId,
+			s.ZkServers,
+			s.ZkChroot,
+			s.ClusterName,
+		)
 		if err != nil && err != zk.ErrNodeExists {
 			log.Fatalf("Failed to persist framework ID: %s", err)
 		} else if err == zk.ErrNodeExists {
@@ -197,10 +212,10 @@ func (s *EtcdScheduler) ResourceOffers(
 			" disk=", resources.disk,
 			" from slave ", *offer.SlaveId.Value)
 
-		if resources.cpus >= CPUS_PER_TASK &&
-			resources.mems >= MEM_PER_TASK &&
-			totalPorts >= PORTS_PER_TASK &&
-			resources.disk >= DISK_PER_TASK &&
+		if resources.cpus >= cpusPerTask &&
+			resources.mems >= memPerTask &&
+			totalPorts >= portsPerTask &&
+			resources.disk >= diskPerTask &&
 			s.offerCache.Push(offer) {
 			log.Infoln("Adding offer to offer cache.")
 			s.launchChan <- struct{}{}
@@ -285,9 +300,9 @@ func (s *EtcdScheduler) StatusUpdate(
 		}
 
 		if len(s.running) < s.taskCount {
-			s.state = Healing
+			s.state = Pruning
 		} else {
-			s.state = Monitoring
+			s.state = SteadyState
 		}
 	default:
 		log.Warningf("Received unhandled task state: %+v", status.GetState())
@@ -295,7 +310,7 @@ func (s *EtcdScheduler) StatusUpdate(
 
 	if len(s.running) == 0 {
 		// TODO logic for restoring from backup
-		s.state = Initializing
+		s.state = Growing
 	}
 }
 
@@ -335,7 +350,10 @@ func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 	if err == "Completed framework attempted to re-register" {
 		// TODO(tyler) automatically restart, don't expect this to be restarted externally
 		rpc.ClearZKState(s.ZkServers, s.ZkChroot, s.ClusterName)
-		log.Fatalf("Removing reference to completed framework in zookeeper and dying.")
+		log.Fatalf(
+			"Removing reference to completed " +
+				"framework in zookeeper and dying.",
+		)
 	}
 }
 
@@ -437,8 +455,8 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 
 	nrunning = len(s.running)
 	if nrunning >= s.taskCount {
-		s.offerCache.Push(offer)
 		log.Infoln("Already running enough tasks.")
+		s.offerCache.Push(offer)
 		return
 	}
 	resources := parseOffer(offer)
@@ -451,7 +469,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	s.highestInstanceID++
 
 	var clusterType string
-	if s.state == Initializing {
+	if s.state == Growing {
 		clusterType = "new"
 	} else {
 		clusterType = "existing"
@@ -475,6 +493,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	serializedConfig, err := json.Marshal(instance)
 	if err != nil {
 		log.Errorf("Could not serialize our new task!")
+		s.offerCache.Push(offer)
 		return
 	}
 
@@ -491,9 +510,9 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		SlaveId:  offer.SlaveId,
 		Executor: executor,
 		Resources: []*mesos.Resource{
-			util.NewScalarResource("cpus", CPUS_PER_TASK),
-			util.NewScalarResource("mem", MEM_PER_TASK),
-			util.NewScalarResource("disk", DISK_PER_TASK),
+			util.NewScalarResource("cpus", cpusPerTask),
+			util.NewScalarResource("mem", memPerTask),
+			util.NewScalarResource("disk", diskPerTask),
 			util.NewRangesResource("ports", []*mesos.Value_Range{
 				util.NewValueRange(uint64(rpcPort), uint64(clientPort)),
 			}),
@@ -520,6 +539,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 			RefuseSeconds: proto.Float64(1),
 		},
 	)
+	return
 }
 
 func parseOffer(offer *mesos.Offer) OfferResources {
@@ -627,7 +647,7 @@ func formatConfig(
 	params.Cluster = strings.Join(formatted, ",")
 
 	var config bytes.Buffer
-	t := template.Must(template.New("name").Parse(ETCD_INVOCATION_TEMPLATE))
+	t := template.Must(template.New("name").Parse(etcdInvocationTemplate))
 	err := t.Execute(&config, params)
 	if err != nil {
 		log.Error(err)

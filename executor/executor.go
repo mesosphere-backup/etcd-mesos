@@ -30,8 +30,8 @@ import (
 )
 
 const (
-	MESOS_MAX_SLAVE_PING_TIMEOUTS = 5
-	MESOS_SLAVE_PING_TIMEOUT      = 15 * time.Second
+	mesosMaxSlavePingTimeouts = 5
+	mesosSlavePingTimeout     = 15 * time.Second
 )
 
 type etcdExecutor struct {
@@ -67,8 +67,8 @@ func (e *etcdExecutor) Reregistered(
 
 func (e *etcdExecutor) Disconnected(executor.ExecutorDriver) {
 	log.Infoln("Executor disconnected.")
-	const suicideTimeout = ((MESOS_MAX_SLAVE_PING_TIMEOUTS + 1) *
-		MESOS_SLAVE_PING_TIMEOUT)
+	const suicideTimeout = ((mesosMaxSlavePingTimeouts + 1) *
+		mesosSlavePingTimeout)
 	go func() {
 		select {
 		case <-e.cancelSuicide:

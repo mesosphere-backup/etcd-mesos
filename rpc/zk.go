@@ -55,7 +55,12 @@ func ParseZKURI(zkURI string) (servers []string, chroot string, err error) {
 	return servers, chroot, nil
 }
 
-func PersistFrameworkID(fwid *mesos.FrameworkID, zkServers []string, zkChroot string, clusterName string) error {
+func PersistFrameworkID(
+	fwid *mesos.FrameworkID,
+	zkServers []string,
+	zkChroot string,
+	clusterName string,
+) error {
 	c, _, err := zk.Connect(zkServers, time.Second*5)
 	if err != nil {
 		return err
@@ -85,7 +90,11 @@ func PersistFrameworkID(fwid *mesos.FrameworkID, zkServers []string, zkChroot st
 	return nil
 }
 
-func GetPreviousFrameworkID(zkServers []string, zkChroot string, clusterName string) (string, error) {
+func GetPreviousFrameworkID(
+	zkServers []string,
+	zkChroot string,
+	clusterName string,
+) (string, error) {
 	c, _, err := zk.Connect(zkServers, time.Second*5)
 	if err != nil {
 		return "", err
@@ -96,7 +105,11 @@ func GetPreviousFrameworkID(zkServers []string, zkChroot string, clusterName str
 }
 
 // TODO(tyler) make this more testable.
-func ClearZKState(zkServers []string, zkChroot string, clusterName string) error {
+func ClearZKState(
+	zkServers []string,
+	zkChroot string,
+	clusterName string,
+) error {
 	c, _, err := zk.Connect(zkServers, time.Second*5)
 	if err != nil {
 		return err

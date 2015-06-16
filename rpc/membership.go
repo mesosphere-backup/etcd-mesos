@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mesosphere/etcd-mesos/common"
@@ -41,32 +42,25 @@ type ClusterMemberList struct {
 	} `json:"members"`
 }
 
-func ConfigureInstance(running map[string]*common.EtcdConfig, task string) {
+func ConfigureInstance(
+	running map[string]*common.EtcdConfig,
+	newInstance *common.EtcdConfig,
+) error {
 	if len(running) == 0 {
-		log.Info("No running members to configure.  Skipping.")
-		return
+		log.Info("No running members to configure.  Skipping configuration.")
+		return nil
 	}
-	// TODO(tyler) retry with exponential backoff
 	// TODO(tyler) enforce invariant that all existing nodes must be healthy before adding a new one!
 	err := HealthCheck(running)
 	if err != nil {
 		log.Errorf("!!!! cluster failed health check: %+v", err)
-		// TODO refine this - I think it currently implicitly causes the task to finish when it tries to initialize
-		return
+		return err
 	}
 
-	newInstance, present := running[task]
-	if !present {
-		log.Errorf("task is not present in running map: %s", task)
-		// TODO refine this - I think it currently implicitly causes the task to finish when it tries to initialize
-		return
-	}
+	backoff := 1
 	log.Infof("trying to reconfigure cluster for newInstance %+v", newInstance)
 	for retries := 0; retries < 5; retries++ {
-		for id, args := range running {
-			if id == task {
-				continue
-			}
+		for _, args := range running {
 			url := fmt.Sprintf(
 				"http://%s:%d/v2/members",
 				args.Host,
@@ -101,67 +95,79 @@ func ConfigureInstance(running map[string]*common.EtcdConfig, task string) {
 				log.Errorf("Failed to unmarshal json: %s", err)
 				continue
 			}
+			log.Infof("Successfully configured new node: %+v\n", memberList)
+			return nil
+
+			// TODO(tyler) invariant: member list should now contain node
+		}
+		log.Warningf("Failed to configure cluster for new instance.  "+
+			"Backing off for %d seconds and retrying.", backoff)
+		time.Sleep(time.Duration(backoff) * time.Second)
+		backoff = backoff << 1
+	}
+	return errors.New("Failed to configure cluster: no nodes reachable.")
+}
+
+func MemberList(
+	running map[string]*common.EtcdConfig,
+) (nameToIdent map[string]string, err error) {
+	nameToIdent = map[string]string{}
+
+	if len(running) == 0 {
+		log.Infoln("Skipping member query - none running or known.")
+		return
+	}
+
+	backoff := 1
+	for retries := 0; retries < 5; retries++ {
+		for _, args := range running {
+			url := fmt.Sprintf(
+				"http://%s:%d/v2/members",
+				args.Host,
+				args.ClientPort)
+
+			client := &http.Client{
+				Timeout: time.Second * 5,
+			}
+			resp, err := client.Get(url)
+			if err != nil {
+				log.Error("Could not query %s for member list: %+v", args.Host, err)
+				continue
+			}
+			defer resp.Body.Close()
+
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Error("could not query %s for member list", args.Host)
+				continue
+			}
+			log.Info("MemberList response:", string(body))
+			var memberList ClusterMemberList
+			err = json.Unmarshal(body, &memberList)
+			if err != nil {
+				log.Error(err)
+				continue
+			}
 			if len(memberList.Members) == 0 {
 				err = errors.New("Remote node returned an empty etcd member list.")
 				continue
 			}
-			log.Infof("Successfully configured new node: %+v\n", memberList)
-			return
+			log.Infof("got member list: %+v\n", memberList)
 
-			// TODO(tyler) check response, and return if it's valid
-			// TODO(tyler) invariant: member list should now contain node
+			for _, m := range memberList.Members {
+				nameToIdent[m.Name] = m.Id
+			}
+			return nameToIdent, nil
 		}
-	}
-}
-
-func MemberList(running map[string]*common.EtcdConfig) (nameToIdent map[string]string, err error) {
-	// TODO(tyler) retry with exponential backoff
-	nameToIdent = map[string]string{}
-
-	for _, args := range running {
-		url := fmt.Sprintf(
-			"http://%s:%d/v2/members",
-			args.Host,
-			args.ClientPort)
-
-		client := &http.Client{
-			Timeout: time.Second * 5,
-		}
-		resp, err := client.Get(url)
-		if err != nil {
-			log.Error("Could not query %s for member list: %+v", args.Host, err)
-			continue
-		}
-		defer resp.Body.Close()
-
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			log.Error("could not query %s for member list", args.Host)
-			continue
-		}
-		log.Info("MemberList response:", string(body))
-		var memberList ClusterMemberList
-		err = json.Unmarshal(body, &memberList)
-		if err != nil {
-			log.Error(err)
-			continue
-		}
-		if len(memberList.Members) == 0 {
-			err = errors.New("Remote node returned an empty etcd member list.")
-			continue
-		}
-		log.Infof("got member list: %+v\n", memberList)
-
-		for _, m := range memberList.Members {
-			nameToIdent[m.Name] = m.Id
-		}
-		break
+		log.Warningf("Failed to retrieve list of configured members.  "+
+			"Backing off for %d seconds and retrying.", backoff)
+		time.Sleep(time.Duration(backoff) * time.Second)
+		backoff = backoff << 1
 	}
 	return nameToIdent, err
 }
 
 func RemoveInstance(running map[string]*common.EtcdConfig, task string) {
-	// TODO(tyler) retry with exponential backoff
 	log.Infof("Attempting to remove task %s from "+
 		"the etcd cluster configuration.", task)
 	members, err := MemberList(running)
@@ -169,39 +175,63 @@ func RemoveInstance(running map[string]*common.EtcdConfig, task string) {
 		// TODO(tyler) handle
 	}
 	ident := members[task]
-	for id, args := range running {
-		if id == task {
-			continue
-		}
-		url := fmt.Sprintf(
-			"http://%s:%d/v2/members/%s",
-			args.Host,
-			args.ClientPort,
-			ident)
+	backoff := 1
+	for retries := 0; retries < 5; retries++ {
+		for id, args := range running {
+			if id == task {
+				continue
+			}
+			url := fmt.Sprintf(
+				"http://%s:%d/v2/members/%s",
+				args.Host,
+				args.ClientPort,
+				ident)
 
-		req, err := http.NewRequest("DELETE", url, nil)
-		if err != nil {
-			log.Error(err)
-			continue
-		}
+			req, err := http.NewRequest("DELETE", url, nil)
+			if err != nil {
+				log.Error(err)
+				continue
+			}
 
-		client := &http.Client{
-			Timeout: time.Second * 5,
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Error(err)
-			continue
-		}
-		defer resp.Body.Close()
+			client := &http.Client{
+				Timeout: time.Second * 5,
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+			defer resp.Body.Close()
 
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			log.Errorf("Problem removing instance for this attempt: %s", err)
-			continue
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Errorf("Problem removing instance for this attempt: %s", err)
+				continue
+			}
+			log.Info("RemoveInstance response: ", string(body))
+			if string(body) == "Method Not Allowed" {
+				log.Error("Received error response while trying to remove " +
+					"node from cluster configuration.")
+				continue
+			}
+			var removeResponse struct {
+				Message string `json="message"`
+			}
+			err = json.Unmarshal(body, &removeResponse)
+			// TODO(tyler) invariant: member list should no longer contain node
+			if err != nil {
+				log.Errorf("Received unexpected response: %s", string(body))
+				log.Errorf("Failed to unmarshal json: %s", err)
+				continue
+			}
+			if strings.HasPrefix(removeResponse.Message, "Member permanently removed") {
+				log.Info("Successfully removed member from cluster configuration.")
+				return
+			}
 		}
-		log.Info("RemoveInstance response: ", string(body))
-		// TODO(tyler) check response, and return if it's valid
-		// TODO(tyler) invariant: member list should no longer contain node
+		log.Warningf("Failed to retrieve list of configured members.  "+
+			"Backing off for %d seconds and retrying.", backoff)
+		time.Sleep(time.Duration(backoff) * time.Second)
+		backoff = backoff << 1
 	}
 }

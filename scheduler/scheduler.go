@@ -21,6 +21,7 @@ package scheduler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -230,6 +231,10 @@ func (s *EtcdScheduler) StatusUpdate(
 		mesos.TaskState_TASK_ERROR,
 		mesos.TaskState_TASK_FAILED:
 		etcdConfig := common.EtcdConfig{}
+		// Pump the brakes so that we have time to deconfigure the lost node
+		// before adding a new one.  If we don't deconfigure first, we risk
+		// split brain.
+		s.pauseChan <- struct{}{}
 		err := json.Unmarshal([]byte(status.GetTaskId().GetValue()), &etcdConfig)
 		if err != nil {
 			log.Errorf("Could not deserialize taskid into EtcdConfig: %s", err)
@@ -237,7 +242,7 @@ func (s *EtcdScheduler) StatusUpdate(
 		}
 		delete(s.running, etcdConfig.Name)
 		go func() {
-			rpc.RemoveInstance(s.running, status.GetTaskId().GetValue())
+			rpc.RemoveInstance(s.running, etcdConfig.Name)
 			// Allow some time for out-of-quorum followers to hopefully sync the change.
 			// TODO(tyler) is this necessary?
 			time.Sleep(3 * time.Second)
@@ -346,7 +351,8 @@ func (s *EtcdScheduler) SerialLauncher(driver scheduler.SchedulerDriver) {
 		for {
 			select {
 			case <-s.pauseChan:
-				log.Info("SerialLauncher sleeping for 10 seconds.")
+				log.Info("SerialLauncher sleeping for 10 seconds " +
+					"after receiving pause signal.")
 				time.Sleep(10 * time.Second)
 			default:
 				goto FCFSPauseOrLaunch
@@ -361,15 +367,18 @@ func (s *EtcdScheduler) SerialLauncher(driver scheduler.SchedulerDriver) {
 			s.launchOne(driver)
 
 			// Wait 10 seconds between launches to allow a cluster to settle.
+			log.Info("SerialLauncher sleeping for 10 seconds after launch attempt.")
 			time.Sleep(10 * time.Second)
 		case <-s.pauseChan:
-			log.Info("SerialLauncher sleeping for 10 seconds.")
+			log.Info("SerialLauncher sleeping for 10 seconds " +
+				"after receiving pause signal.")
 			time.Sleep(10 * time.Second)
 		}
 	}
 }
 
 func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
+	// TODO(tyler) NEVER launch a task when we have dead nodes in the member list
 	log.Infoln("Attempting to launch a task.")
 	s.mut.RLock()
 	nrunning := len(s.running)
@@ -384,18 +393,45 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		return
 	}
 
-	offer := s.offerCache.BlockingPop()
-	s.mut.Lock()
-	defer s.mut.Unlock()
-	for _, etcdConfig := range s.running {
-		if etcdConfig.SlaveID == offer.SlaveId.GetValue() {
-			log.Infoln("Already running an etcd instance on this slave.")
-			// TODO(tyler) should we be dropping this offer here or requeueing it?
-			if s.SingleInstancePerSlave {
-				return
+	members, err := rpc.MemberList(s.running)
+	if err != nil {
+		log.Errorf("Failed to retrieve running member list, "+
+			"not launching a new task: %s", err)
+		return
+	}
+	if len(members) == s.taskCount {
+		log.Errorf("Cluster is already configured for desired number of nodes.  " +
+			"Must deconfigure any dead nodes first or we may risk livelock.")
+		return
+	}
+	err = rpc.HealthCheck(s.running)
+	if err != nil && len(s.running) != 0 {
+		log.Errorf("Failed health check, not launching a new task: %s", err)
+		return
+	}
+
+	// Issue BlockingPop until we get back an offer we can use.
+	var offer *mesos.Offer
+	for {
+		innerOffer, err := func() (*mesos.Offer, error) {
+			offer := s.offerCache.BlockingPop()
+			s.mut.RLock()
+			defer s.mut.RUnlock()
+			for _, etcdConfig := range s.running {
+				if etcdConfig.SlaveID == offer.SlaveId.GetValue() {
+					log.Infoln("Already running an etcd instance on this slave.")
+					if s.SingleInstancePerSlave {
+						return nil, errors.New("Already running on slave.")
+					}
+					log.Infoln("Launching anyway due to -single-instance-per-slave " +
+						"argument of false.")
+				}
 			}
-			log.Infoln("Launching anyway due to -single-instance-per-slave " +
-				"argument of false.")
+			return offer, nil
+		}()
+		if err == nil {
+			offer = innerOffer
+			break
 		}
 	}
 
@@ -464,9 +500,6 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		},
 	}
 
-	// TODO(tyler) put this in pending, not running.  would also need rate limit or something.
-	s.running[instance.Name] = instance
-
 	log.Infof(
 		"Prepared task: %s with offer %s for launch\n",
 		task.GetName(),
@@ -477,7 +510,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	tasks := []*mesos.TaskInfo{task}
 	log.Infoln("Launching ", len(tasks), "tasks for offer", offer.Id.GetValue())
 	// TODO(tyler) move configuration to executor
-	go rpc.ConfigureInstance(s.running, instance.Name)
+	go rpc.ConfigureInstance(s.running, instance)
 	// TODO(tyler) persist failover state (pending task)
 
 	driver.LaunchTasks(
@@ -488,6 +521,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		},
 	)
 }
+
 func parseOffer(offer *mesos.Offer) OfferResources {
 	getResources := func(resourceName string) []*mesos.Resource {
 		return util.FilterResources(

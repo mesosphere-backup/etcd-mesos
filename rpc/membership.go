@@ -124,7 +124,10 @@ func MemberList(running map[string]*common.EtcdConfig) (nameToIdent map[string]s
 			args.Host,
 			args.ClientPort)
 
-		resp, err := http.Get(url)
+		client := &http.Client{
+			Timeout: time.Second * 5,
+		}
+		resp, err := client.Get(url)
 		if err != nil {
 			log.Error("Could not query %s for member list: %+v", args.Host, err)
 			continue
@@ -177,8 +180,14 @@ func RemoveInstance(running map[string]*common.EtcdConfig, task string) {
 			ident)
 
 		req, err := http.NewRequest("DELETE", url, nil)
+		if err != nil {
+			log.Error(err)
+			continue
+		}
 
-		client := &http.Client{}
+		client := &http.Client{
+			Timeout: time.Second * 5,
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			log.Error(err)

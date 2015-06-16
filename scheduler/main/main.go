@@ -60,6 +60,11 @@ func main() {
 	mesosAuthSecretFile := flag.String("mesos_authentication_secret_file", "", "Mesos authentication secret file.")
 	authProvider := flag.String("mesos_authentication_provider", sasl.ProviderName,
 		fmt.Sprintf("Authentication provider to use, default is SASL that supports mechanisms: %+v", mech.ListSupported()))
+	restorePath := flag.String("restore", "", "Local path or URI for an etcd backup to restore as a new cluster.")
+	master := flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
+	clusterName := flag.String("clusterName", "default", "Unique name of this etcd cluster")
+	singleInstancePerSlave := flag.Bool("single-instance-per-slave", true, "Only allow one etcd instance to be started per slave.")
+	zkConnect := flag.String("zk", "", "zookeeper URI")
 	flag.Parse()
 
 	executorUris := []*mesos.CommandInfo_URI{}
@@ -81,14 +86,11 @@ func main() {
 
 	etcdScheduler := etcdscheduler.NewEtcdScheduler(*taskCount, executorUris)
 	etcdScheduler.ExecutorPath = *executorPath
+	etcdScheduler.RestorePath = *restorePath
+	etcdScheduler.Master = *master
+	etcdScheduler.ClusterName = *clusterName
+	etcdScheduler.SingleInstancePerSlave = *singleInstancePerSlave
 
-	flag.StringVar(&etcdScheduler.RestorePath, "restore", "", "Local path or URI for an etcd backup to restore as a new cluster.")
-	flag.StringVar(&etcdScheduler.Master, "master", "127.0.0.1:5050", "Master address <ip:port>")
-	flag.StringVar(&etcdScheduler.ClusterName, "clusterName", "default", "Unique name of this etcd cluster")
-	flag.BoolVar(&etcdScheduler.SingleInstancePerSlave, "single-instance-per-slave", true, "Only allow one etcd instance to be started per slave.")
-
-	zkConnect := flag.String("zk", "", "zookeeper URI")
-	flag.Parse()
 	fwinfo := &mesos.FrameworkInfo{
 		User:            proto.String(""), // Mesos-go will fill in user.
 		Name:            proto.String("etcd: " + etcdScheduler.ClusterName),

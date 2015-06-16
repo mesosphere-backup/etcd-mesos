@@ -368,7 +368,10 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	s.mut.RLock()
 	nrunning := len(s.running)
 	s.mut.RUnlock()
-	log.Infoln("nrunning: ", nrunning, " taskCount: ", s.taskCount)
+	log.Infof(
+		"running instances: %d desired: %d offers: %d",
+		nrunning, s.taskCount, s.offerCache.Len(),
+	)
 	log.Infof("running: %+v", s.running)
 	if nrunning >= s.taskCount {
 		log.Infoln("Already running enough tasks.")

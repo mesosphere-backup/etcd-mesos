@@ -248,11 +248,8 @@ func (s *EtcdScheduler) StatusUpdate(
 		status.State.Enum().String(),
 	)
 
-	log.Info("statusupdate attempt")
 	s.mut.Lock()
-	log.Info("statusupdate locked")
 	defer s.mut.Unlock()
-	defer log.Info("statusupdate unlocked")
 
 	etcdConfig := common.EtcdConfig{}
 	err := json.Unmarshal([]byte(status.GetTaskId().GetValue()), &etcdConfig)
@@ -357,12 +354,9 @@ func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 
 func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
 	// Reset mutable state
-	log.Info("Initialize outer attempt")
 	s.mut.Lock()
-	log.Info("Initialize outer locked")
 	s.running = map[string]*common.EtcdConfig{}
 	s.mut.Unlock()
-	log.Info("Initialize outer unlocked")
 
 	// Pump the brakes to allow some time for reconciliation.
 	s.PumpTheBrakes()
@@ -377,12 +371,9 @@ func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
 		} else {
 			go func() {
 				time.Sleep(4 * s.chillFactor * time.Second)
-				log.Info("Initialize inner attempt")
 				s.mut.Lock()
-				log.Info("Initialize inner locked")
 				s.state = Mutable
 				s.mut.Unlock()
-				log.Info("Initialize inner unlocked")
 			}()
 			return
 		}
@@ -542,7 +533,6 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	for {
 		innerOffer, err := func() (*mesos.Offer, error) {
 			offer := s.offerCache.BlockingPop()
-			log.Info("statusupdate locked")
 			s.mut.RLock()
 			defer s.mut.RUnlock()
 			for _, etcdConfig := range s.running {

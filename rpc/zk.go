@@ -104,7 +104,6 @@ func GetPreviousFrameworkID(
 	return string(rawData), err
 }
 
-// TODO(tyler) make this more testable.
 func ClearZKState(
 	zkServers []string,
 	zkChroot string,

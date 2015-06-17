@@ -47,22 +47,22 @@ func HealthCheck(running map[string]*common.EtcdConfig) error {
 		resp, err := http.Get(url + "/v2/stats/leader")
 		if err != nil {
 			log.Errorf("Could not query %s for leader stats: %+v", url, err)
-			continue
+			return common.ErrEtcdEndpoint
 		}
 		defer resp.Body.Close()
 
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			log.Errorf("Could not query %s for leader stats", url)
-			continue
+			return common.ErrEtcdEndpoint
 		}
-		fmt.Println("Leader stats response:", string(body))
+		log.Info("Leader stats response:", string(body))
 		ls := &etcdstats.LeaderStats{}
 		err = json.Unmarshal(body, ls)
 		if err != nil {
 			log.Errorf("received invalid LeaderStats from endpoint %s:%s",
 				url, string(body))
-			continue
+			return common.ErrEtcdEndpoint
 		}
 		validEndpoint = url
 		break

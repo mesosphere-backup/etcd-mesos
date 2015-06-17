@@ -112,7 +112,7 @@ func (e *etcdExecutor) LaunchTask(
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stdout
 		command.Start()
-		command.Wait() // TODO figure out semantics
+		command.Wait()
 
 		// TODO add monitoring
 

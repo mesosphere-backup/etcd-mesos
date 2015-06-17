@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -62,29 +63,30 @@ const (
 type State int32
 
 const (
-	// The scheduler is Starting when it is adding the first node, optionally
-	// from a backup.
-	Starting State = iota
-	// The scheduler is Growing when it is adding new nodes.
-	Growing
-	// The scheduler is Restoring when it is restoring an etcd snapshot from
-	// S3, HDFS, or the local system.
-	Restoring
-	// The scheduler is SteadyState when it is in steady state, running N nodes.
-	SteadyState
-	// The scheduler is Pruning when it is deconfiguring dead etcd instances.
-	Pruning
+	// The scheduler is Mutable during:
+	// * starting up for the first time
+	// * growing (recovering) from 1 to N nodes
+	// * pruning dead nodes
+	// * exiting
+	Mutable State = iota
+	// The scheduler is Immutable during:
+	// * waiting for state to settle during initialization
+	// * disconnection from the Mesos master
+	// * performing a backup with the intention of seeding a new cluster
+	Immutable
 )
 
 type EtcdScheduler struct {
 	mut                    sync.RWMutex
 	state                  State
-	executorUris           []*mesos.CommandInfo_URI
-	highestInstanceID      int64
+	pending                map[string]struct{}
 	running                map[string]*common.EtcdConfig
+	highestInstanceID      int64
+	executorUris           []*mesos.CommandInfo_URI
 	offerCache             *offercache.OfferCache
 	launchChan             chan struct{}
 	pauseChan              chan struct{}
+	chillFactor            time.Duration
 	RestorePath            string
 	Master                 string
 	ExecutorPath           string
@@ -93,7 +95,7 @@ type EtcdScheduler struct {
 	ZkConnect              string
 	ZkChroot               string
 	ZkServers              []string
-	taskCount              int
+	desiredInstanceCount   int
 	SingleInstancePerSlave bool
 }
 
@@ -110,19 +112,22 @@ type OfferResources struct {
 }
 
 func NewEtcdScheduler(
-	taskCount int,
+	desiredInstanceCount int,
+	chillFactor int,
 	executorUris []*mesos.CommandInfo_URI,
 ) *EtcdScheduler {
 	return &EtcdScheduler{
-		state:             Growing,
-		highestInstanceID: time.Now().Unix(),
-		executorUris:      executorUris,
-		running:           make(map[string]*common.EtcdConfig),
-		ZkServers:         []string{},
-		taskCount:         taskCount,
-		launchChan:        make(chan struct{}, 2048),
-		pauseChan:         make(chan struct{}, 2048),
-		offerCache:        offercache.NewOfferCache(taskCount),
+		state:                Immutable,
+		running:              map[string]*common.EtcdConfig{},
+		pending:              map[string]struct{}{},
+		highestInstanceID:    time.Now().Unix(),
+		executorUris:         executorUris,
+		ZkServers:            []string{},
+		chillFactor:          time.Duration(chillFactor),
+		desiredInstanceCount: desiredInstanceCount,
+		launchChan:           make(chan struct{}, 2048),
+		pauseChan:            make(chan struct{}, 2048),
+		offerCache:           offercache.NewOfferCache(desiredInstanceCount),
 	}
 }
 
@@ -133,9 +138,8 @@ func (s *EtcdScheduler) Registered(
 	frameworkId *mesos.FrameworkID,
 	masterInfo *mesos.MasterInfo,
 ) {
-	// Pump the brakes to allow some time for reconciliation.
-	s.pauseChan <- struct{}{}
-	s.pauseChan <- struct{}{}
+	log.Infoln("Framework Registered with Master ", masterInfo)
+
 	if s.ZkConnect != "" {
 		err := rpc.PersistFrameworkID(
 			frameworkId,
@@ -149,30 +153,22 @@ func (s *EtcdScheduler) Registered(
 			log.Warning("Framework ID is already persisted for this cluster.")
 		}
 	}
-	log.Infoln("Framework Registered with Master ", masterInfo)
-	_, err := driver.ReconcileTasks([]*mesos.TaskStatus{})
-	if err != nil {
-		log.Errorf("Error while calling ReconcileTasks: %s", err)
-	}
+	s.Initialize(driver)
 }
 
 func (s *EtcdScheduler) Reregistered(
 	driver scheduler.SchedulerDriver,
 	masterInfo *mesos.MasterInfo,
 ) {
-	// Pump the brakes to allow some time for reconciliation.
-	s.pauseChan <- struct{}{}
-	s.pauseChan <- struct{}{}
-	// TODO(tyler) check invariant: current persisted fwid in zk should be the same as this one
-	log.Infoln("Framework Re-Registered with Master ", masterInfo)
-	_, err := driver.ReconcileTasks([]*mesos.TaskStatus{})
-	if err != nil {
-		log.Errorf("Error while calling ReconcileTasks: %s", err)
-	}
+	log.Infoln("Framework Reregistered with Master ", masterInfo)
+
+	s.Initialize(driver)
 }
 
 func (s *EtcdScheduler) Disconnected(scheduler.SchedulerDriver) {
-	// TODO(tyler) disable all external actions
+	s.mut.Lock()
+	s.state = Immutable
+	s.mut.Unlock()
 }
 
 func (s *EtcdScheduler) ResourceOffers(
@@ -212,13 +208,29 @@ func (s *EtcdScheduler) ResourceOffers(
 			" disk=", resources.disk,
 			" from slave ", *offer.SlaveId.Value)
 
+		if resources.cpus < cpusPerTask {
+			log.Infoln("Offer cpu is insufficient.")
+		}
+
+		if resources.mems < memPerTask {
+			log.Infoln("Offer memory is insufficient.")
+		}
+
+		if totalPorts < portsPerTask {
+			log.Infoln("Offer ports are insuffient.")
+		}
+
+		if resources.disk < diskPerTask {
+			log.Infoln("Offer disk is insufficient.")
+		}
+
 		if resources.cpus >= cpusPerTask &&
 			resources.mems >= memPerTask &&
 			totalPorts >= portsPerTask &&
 			resources.disk >= diskPerTask &&
 			s.offerCache.Push(offer) {
 			log.Infoln("Adding offer to offer cache.")
-			s.launchChan <- struct{}{}
+			s.QueueLaunchAttempt()
 		} else {
 			log.Infoln("Offer rejected.")
 		}
@@ -236,8 +248,21 @@ func (s *EtcdScheduler) StatusUpdate(
 		status.State.Enum().String(),
 	)
 
+	log.Info("statusupdate attempt")
 	s.mut.Lock()
+	log.Info("statusupdate locked")
 	defer s.mut.Unlock()
+	defer log.Info("statusupdate unlocked")
+
+	etcdConfig := common.EtcdConfig{}
+	err := json.Unmarshal([]byte(status.GetTaskId().GetValue()), &etcdConfig)
+	if err != nil {
+		log.Errorf("!!!! Could not deserialize taskid into EtcdConfig: %s", err)
+		return
+	}
+
+	// If this task was pending, we now know it's running or dead.
+	delete(s.pending, etcdConfig.Name)
 
 	switch status.GetState() {
 	case mesos.TaskState_TASK_LOST,
@@ -245,37 +270,17 @@ func (s *EtcdScheduler) StatusUpdate(
 		mesos.TaskState_TASK_KILLED,
 		mesos.TaskState_TASK_ERROR,
 		mesos.TaskState_TASK_FAILED:
-		etcdConfig := common.EtcdConfig{}
 		// Pump the brakes so that we have time to deconfigure the lost node
 		// before adding a new one.  If we don't deconfigure first, we risk
 		// split brain.
-		s.pauseChan <- struct{}{}
-		err := json.Unmarshal([]byte(status.GetTaskId().GetValue()), &etcdConfig)
-		if err != nil {
-			log.Errorf("Could not deserialize taskid into EtcdConfig: %s", err)
-			break
-		}
+		s.PumpTheBrakes()
 		delete(s.running, etcdConfig.Name)
 		go func() {
 			rpc.RemoveInstance(s.running, etcdConfig.Name)
-			// Allow some time for out-of-quorum followers to hopefully sync the change.
-			// TODO(tyler) is this necessary?
-			time.Sleep(3 * time.Second)
-			s.launchChan <- struct{}{}
+			s.QueueLaunchAttempt()
 		}()
 	case mesos.TaskState_TASK_RUNNING:
-		etcdConfig := common.EtcdConfig{}
-		err := json.Unmarshal([]byte(status.GetTaskId().GetValue()), &etcdConfig)
-		if err != nil {
-			log.Errorf(
-				"Could not deserialize taskid into EtcdConfig: %s",
-				err,
-			)
-			return
-			// TODO(tyler) kill invalid task? does data get set to nothing sometimes? can a state enter running twice?
-		} else {
-			s.running[etcdConfig.Name] = &etcdConfig
-		}
+		s.running[etcdConfig.Name] = &etcdConfig
 
 		// During reconcilliation, we may find nodes with higher ID's due to ntp drift
 		etcdIndexParts := strings.Split(etcdConfig.Name, "-")
@@ -294,23 +299,14 @@ func (s *EtcdScheduler) StatusUpdate(
 
 		_, present := s.running[etcdConfig.Name]
 		if !present {
-			// TODO(tyler) what other reconciliation logic do we need to do for housekeeping?
-			// TODO(tyler) pull EtcdConfig json out of status.GetData() and unmarshal it.
 			s.running[etcdConfig.Name] = &etcdConfig
-		}
-
-		if len(s.running) < s.taskCount {
-			s.state = Pruning
-		} else {
-			s.state = SteadyState
 		}
 	default:
 		log.Warningf("Received unhandled task state: %+v", status.GetState())
 	}
 
 	if len(s.running) == 0 {
-		// TODO logic for restoring from backup
-		s.state = Growing
+		// TODO(tyler) logic for restoring from backup
 	}
 }
 
@@ -359,6 +355,110 @@ func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 
 // ----------------------- helper functions ------------------------- //
 
+func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
+	// Reset mutable state
+	log.Info("Initialize outer attempt")
+	s.mut.Lock()
+	log.Info("Initialize outer locked")
+	s.running = map[string]*common.EtcdConfig{}
+	s.mut.Unlock()
+	log.Info("Initialize outer unlocked")
+
+	// Pump the brakes to allow some time for reconciliation.
+	s.PumpTheBrakes()
+	s.PumpTheBrakes()
+
+	// Request that the master send us TaskStatus for live tasks.
+	backoff := 1
+	for retries := 0; retries < 5; retries++ {
+		_, err := driver.ReconcileTasks([]*mesos.TaskStatus{})
+		if err != nil {
+			log.Errorf("Error while calling ReconcileTasks: %s", err)
+		} else {
+			go func() {
+				time.Sleep(4 * s.chillFactor * time.Second)
+				log.Info("Initialize inner attempt")
+				s.mut.Lock()
+				log.Info("Initialize inner locked")
+				s.state = Mutable
+				s.mut.Unlock()
+				log.Info("Initialize inner unlocked")
+			}()
+			return
+		}
+		time.Sleep(time.Duration(backoff) * time.Second)
+		backoff = int(math.Min(float64(backoff<<1), 8))
+	}
+	log.Fatal("Failed to call ReconcileTasks!  " +
+		"It is dangerous to continue at this point.  Dying.")
+}
+
+func (s *EtcdScheduler) QueueLaunchAttempt() {
+	select {
+	case s.launchChan <- struct{}{}:
+	default:
+		// Somehow launchChan is full...
+		log.Warning("launchChan is full!")
+	}
+}
+
+func (s *EtcdScheduler) PumpTheBrakes() {
+	select {
+	case s.pauseChan <- struct{}{}:
+	default:
+		log.Warning("pauseChan is full!")
+	}
+}
+
+func (s *EtcdScheduler) PeriodicLaunchRequestor() {
+	for {
+		s.mut.RLock()
+		if len(s.running) < s.desiredInstanceCount &&
+			s.state == Mutable {
+			s.QueueLaunchAttempt()
+		} else if s.state == Immutable {
+			log.Info("PeriodicLaunchRequestor skipping due to " +
+				"Immutable scheduler state.")
+		}
+		s.mut.RUnlock()
+		time.Sleep(5 * s.chillFactor * time.Second)
+	}
+}
+
+func (s *EtcdScheduler) PeriodicPruner() {
+	for {
+		s.mut.RLock()
+		runningCopy := map[string]*common.EtcdConfig{}
+		for k, v := range s.running {
+			runningCopy[k] = v
+		}
+		s.mut.RUnlock()
+		if s.state == Mutable {
+			configuredMembers, err := rpc.MemberList(runningCopy)
+			if err != nil {
+				log.Errorf("PeriodicPruner could not retrieve current member list: %s",
+					err)
+			} else {
+				s.mut.RLock()
+				for k, _ := range configuredMembers {
+					_, present := s.running[k]
+					if !present {
+						// TODO(tyler) only do this after we've allowed time to settle after
+						// reconciliation, or we will nuke valid nodes!
+						log.Warningf("PeriodicPruner attempting to deconfigure unknown etcd "+
+							"instance: %s", k)
+						rpc.RemoveInstance(s.running, k)
+					}
+				}
+				s.mut.RUnlock()
+			}
+		} else {
+			log.Info("PeriodicPruner skipping due to Immutable scheduler state.")
+		}
+		time.Sleep(4 * s.chillFactor * time.Second)
+	}
+}
+
 // SerialLauncher performs the launching of all tasks in a time-limited
 // way.  This helps to prevent misconfiguration by allowing time for state
 // to propagate.
@@ -369,9 +469,9 @@ func (s *EtcdScheduler) SerialLauncher(driver scheduler.SchedulerDriver) {
 		for {
 			select {
 			case <-s.pauseChan:
-				log.Info("SerialLauncher sleeping for 10 seconds " +
-					"after receiving pause signal.")
-				time.Sleep(10 * time.Second)
+				log.Infof("SerialLauncher sleeping for %d seconds "+
+					"after receiving pause signal.", s.chillFactor)
+				time.Sleep(s.chillFactor * time.Second)
 			default:
 				goto FCFSPauseOrLaunch
 			}
@@ -384,55 +484,65 @@ func (s *EtcdScheduler) SerialLauncher(driver scheduler.SchedulerDriver) {
 			}
 			s.launchOne(driver)
 
-			// Wait 10 seconds between launches to allow a cluster to settle.
-			log.Info("SerialLauncher sleeping for 10 seconds after launch attempt.")
-			time.Sleep(10 * time.Second)
+			// Wait some time between launches to allow a cluster to settle.
+			log.Infof("SerialLauncher sleeping for %d seconds after "+
+				"launch attempt.", s.chillFactor)
+			time.Sleep(s.chillFactor * time.Second)
 		case <-s.pauseChan:
-			log.Info("SerialLauncher sleeping for 10 seconds " +
-				"after receiving pause signal.")
-			time.Sleep(10 * time.Second)
+			log.Infof("SerialLauncher sleeping for %d seconds "+
+				"after receiving pause signal.", s.chillFactor)
+			time.Sleep(s.chillFactor * time.Second)
 		}
 	}
 }
 
+// TODO(tyler) split this long function up!
 func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
-	// TODO(tyler) NEVER launch a task when we have dead nodes in the member list
 	log.Infoln("Attempting to launch a task.")
 	s.mut.RLock()
-	nrunning := len(s.running)
-	s.mut.RUnlock()
+
 	log.Infof(
 		"running instances: %d desired: %d offers: %d",
-		nrunning, s.taskCount, s.offerCache.Len(),
+		len(s.running), s.desiredInstanceCount, s.offerCache.Len(),
 	)
 	log.Infof("running: %+v", s.running)
-	if nrunning >= s.taskCount {
+	if len(s.running) >= s.desiredInstanceCount {
 		log.Infoln("Already running enough tasks.")
+		s.mut.RUnlock()
 		return
 	}
 
 	members, err := rpc.MemberList(s.running)
 	if err != nil {
 		log.Errorf("Failed to retrieve running member list, "+
-			"not launching a new task: %s", err)
+			"rescheduling launch attempt for later: %s", err)
+		s.PumpTheBrakes()
+		s.QueueLaunchAttempt()
+		s.mut.RUnlock()
 		return
 	}
-	if len(members) == s.taskCount {
+	if len(members) == s.desiredInstanceCount {
 		log.Errorf("Cluster is already configured for desired number of nodes.  " +
 			"Must deconfigure any dead nodes first or we may risk livelock.")
+		s.mut.RUnlock()
 		return
 	}
 	err = rpc.HealthCheck(s.running)
 	if err != nil && len(s.running) != 0 {
-		log.Errorf("Failed health check, not launching a new task: %s", err)
+		log.Errorf("Failed health check, rescheduling launch attempt for later: %s", err)
+		s.PumpTheBrakes()
+		s.QueueLaunchAttempt()
+		s.mut.RUnlock()
 		return
 	}
+	s.mut.RUnlock()
 
 	// Issue BlockingPop until we get back an offer we can use.
 	var offer *mesos.Offer
 	for {
 		innerOffer, err := func() (*mesos.Offer, error) {
 			offer := s.offerCache.BlockingPop()
+			log.Info("statusupdate locked")
 			s.mut.RLock()
 			defer s.mut.RUnlock()
 			for _, etcdConfig := range s.running {
@@ -453,8 +563,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		}
 	}
 
-	nrunning = len(s.running)
-	if nrunning >= s.taskCount {
+	if len(s.running) >= s.desiredInstanceCount {
 		log.Infoln("Already running enough tasks.")
 		s.offerCache.Push(offer)
 		return
@@ -469,7 +578,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	s.highestInstanceID++
 
 	var clusterType string
-	if s.state == Growing {
+	if len(s.running) == 0 {
 		clusterType = "new"
 	} else {
 		clusterType = "existing"
@@ -498,7 +607,8 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	}
 
 	stringSerializedConfig := string(serializedConfig)
-	// TODO(tyler) is there a better place to put this so that it will persist in all StatusUpdates?
+	// TODO(tyler) set data to serialized conf, recompute the rest from our
+	// task's resources.
 	taskId := &mesos.TaskID{
 		Value: &stringSerializedConfig,
 	}
@@ -530,7 +640,10 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	log.Infoln("Launching ", len(tasks), "tasks for offer", offer.Id.GetValue())
 	// TODO(tyler) move configuration to executor
 	go rpc.ConfigureInstance(s.running, instance)
-	// TODO(tyler) persist failover state (pending task)
+
+	s.mut.Lock()
+	s.pending[instance.Name] = struct{}{}
+	s.mut.Unlock()
 
 	driver.LaunchTasks(
 		[]*mesos.OfferID{offer.Id},

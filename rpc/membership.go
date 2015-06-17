@@ -173,8 +173,14 @@ func RemoveInstance(running map[string]*common.EtcdConfig, task string) error {
 		"the etcd cluster configuration.", task)
 	members, err := MemberList(running)
 	if err != nil {
-		// TODO(tyler) handle
+		return err
 	}
+
+	if len(running) == 0 {
+		log.Infoln("Skipping RemoveInstance - no running instances.")
+		return errors.New("No running instances to deconfigure!")
+	}
+
 	ident := members[task]
 	backoff := 1
 	var outerErr error
@@ -214,7 +220,7 @@ func RemoveInstance(running map[string]*common.EtcdConfig, task string) error {
 				continue
 			}
 			log.Info("RemoveInstance response: ", string(body))
-			if string(body) == "Method Not Allowed" {
+			if strings.HasPrefix(string(body), "Method Not Allowed") {
 				err = errors.New("Received error response while trying to remove " +
 					"node from cluster configuration.")
 				outerErr = err

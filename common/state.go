@@ -18,6 +18,13 @@
 
 package common
 
+import (
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+)
+
 type EtcdConfig struct {
 	Name       string `json:"name"`
 	Task       string `json:"task"`
@@ -26,4 +33,36 @@ type EtcdConfig struct {
 	ClientPort uint64 `json:"clientPort"`
 	Type       string `json:"type"`
 	SlaveID    string `json:"slaveID"`
+}
+
+func StrToEtcdConfig(input string) (*EtcdConfig, error) {
+	splits := strings.Split(input, ":")
+	if len(splits) != 4 {
+		return nil, errors.New("Invalid format for serialized EtcdConfig.")
+	}
+	rpcPort, err := strconv.ParseInt(splits[2], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	clientPort, err := strconv.ParseInt(splits[3], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	return &EtcdConfig{
+		Name:       splits[0],
+		Host:       splits[1],
+		RpcPort:    uint64(rpcPort),
+		ClientPort: uint64(clientPort),
+	}, nil
+}
+
+func EtcdConfigToStr(input EtcdConfig) string {
+	return fmt.Sprintf(
+		"%s:%s:%d:%d",
+		input.Name,
+		input.Host,
+		input.RpcPort,
+		input.ClientPort,
+	)
 }

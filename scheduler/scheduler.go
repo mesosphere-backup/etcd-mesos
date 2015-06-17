@@ -20,7 +20,6 @@ package scheduler
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -251,12 +250,12 @@ func (s *EtcdScheduler) StatusUpdate(
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
-	etcdConfig := common.EtcdConfig{}
-	err := json.Unmarshal([]byte(status.GetTaskId().GetValue()), &etcdConfig)
+	etcdConfig, err := common.StrToEtcdConfig(status.GetTaskId().GetValue())
 	if err != nil {
 		log.Errorf("!!!! Could not deserialize taskid into EtcdConfig: %s", err)
 		return
 	}
+	etcdConfig.SlaveID = status.SlaveId.GetValue()
 
 	// If this task was pending, we now know it's running or dead.
 	delete(s.pending, etcdConfig.Name)
@@ -277,7 +276,10 @@ func (s *EtcdScheduler) StatusUpdate(
 			s.QueueLaunchAttempt()
 		}()
 	case mesos.TaskState_TASK_RUNNING:
-		s.running[etcdConfig.Name] = &etcdConfig
+		_, present := s.running[etcdConfig.Name]
+		if !present {
+			s.running[etcdConfig.Name] = etcdConfig
+		}
 
 		// During reconcilliation, we may find nodes with higher ID's due to ntp drift
 		etcdIndexParts := strings.Split(etcdConfig.Name, "-")
@@ -292,11 +294,6 @@ func (s *EtcdScheduler) StatusUpdate(
 					s.highestInstanceID = etcdIndex + 1
 				}
 			}
-		}
-
-		_, present := s.running[etcdConfig.Name]
-		if !present {
-			s.running[etcdConfig.Name] = &etcdConfig
 		}
 	default:
 		log.Warningf("Received unhandled task state: %+v", status.GetState())
@@ -589,12 +586,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	}
 	config := formatConfig(instance, running)
 
-	serializedConfig, err := json.Marshal(instance)
-	if err != nil {
-		log.Errorf("Could not serialize our new task!")
-		s.offerCache.Push(offer)
-		return
-	}
+	serializedConfig := common.EtcdConfigToStr(*instance)
 
 	stringSerializedConfig := string(serializedConfig)
 	// TODO(tyler) set data to serialized conf, recompute the rest from our

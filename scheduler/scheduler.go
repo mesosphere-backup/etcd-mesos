@@ -96,6 +96,7 @@ type EtcdScheduler struct {
 	ZkServers              []string
 	desiredInstanceCount   int
 	SingleInstancePerSlave bool
+	healthCheck            func(map[string]*common.EtcdConfig) error
 }
 
 type EtcdParams struct {
@@ -127,6 +128,7 @@ func NewEtcdScheduler(
 		launchChan:           make(chan struct{}, 2048),
 		pauseChan:            make(chan struct{}, 2048),
 		offerCache:           offercache.NewOfferCache(desiredInstanceCount),
+		healthCheck:          rpc.HealthCheck,
 	}
 }
 
@@ -515,7 +517,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		s.mut.RUnlock()
 		return
 	}
-	err = rpc.HealthCheck(s.running)
+	err = s.healthCheck(s.running)
 	if err != nil && len(s.running) != 0 {
 		log.Errorf("Failed health check, rescheduling launch attempt for later: %s", err)
 		s.PumpTheBrakes()
@@ -558,6 +560,10 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	resources := parseOffer(offer)
 
 	// TODO(tyler) this is a broken hack
+	if len(resources.ports) == 0 {
+		log.Warning("Offer contains no ports.")
+		return
+	}
 	lowest := *resources.ports[0].Begin
 	rpcPort := lowest
 	clientPort := lowest + 1

@@ -25,18 +25,19 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mesosphere/etcd-mesos/common"
+	"github.com/mesosphere/etcd-mesos/config"
+	"github.com/mesosphere/etcd-mesos/errors"
 
 	etcdstats "github.com/coreos/etcd/etcdserver/stats"
 	"github.com/coreos/go-etcd/etcd"
 	log "github.com/golang/glog"
 )
 
-func HealthCheck(running map[string]*common.EtcdConfig) error {
+func HealthCheck(running map[string]*config.Etcd) error {
 	// TODO(tyler) invariant: all nodes have same leader
 	// TODO(tyler) invariant: raft index increases
 	// TODO(tyler) retry with exponential backoff
-	//healthy, unhealthy = []common.EtcdConfig{}, []common.EtcdConfig{}
+	//healthy, unhealthy = []config.Etcd{}, []config.Etcd{}
 	var validEndpoint string
 	for _, args := range running {
 		url := fmt.Sprintf(
@@ -47,14 +48,14 @@ func HealthCheck(running map[string]*common.EtcdConfig) error {
 		resp, err := http.Get(url + "/v2/stats/leader")
 		if err != nil {
 			log.Errorf("Could not query %s for leader stats: %+v", url, err)
-			return common.ErrEtcdEndpoint
+			return errors.ErrEtcdEndpoint
 		}
 		defer resp.Body.Close()
 
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			log.Errorf("Could not query %s for leader stats", url)
-			return common.ErrEtcdEndpoint
+			return errors.ErrEtcdEndpoint
 		}
 		log.Info("Leader stats response:", string(body))
 		ls := &etcdstats.LeaderStats{}
@@ -62,7 +63,7 @@ func HealthCheck(running map[string]*common.EtcdConfig) error {
 		if err != nil {
 			log.Errorf("received invalid LeaderStats from endpoint %s:%s",
 				url, string(body))
-			return common.ErrEtcdEndpoint
+			return errors.ErrEtcdEndpoint
 		}
 		validEndpoint = url
 		break
@@ -70,20 +71,20 @@ func HealthCheck(running map[string]*common.EtcdConfig) error {
 
 	if validEndpoint == "" {
 		log.Error("Leader could not be determined.")
-		return common.ErrNoLeader
+		return errors.ErrNoLeader
 	}
 
 	client := etcd.NewClient([]string{validEndpoint})
 	if ok := client.SyncCluster(); !ok {
 		log.Error("Could not establish connection "+
 			"with cluster using endpoints %+v", validEndpoint)
-		return common.ErrEtcdConnection
+		return errors.ErrEtcdConnection
 	}
 
 	resp1, err := client.Get("/", false, false)
 	if err != nil {
 		log.Errorf("Could not query cluster: %s", err)
-		return common.ErrEtcdEndpoint
+		return errors.ErrEtcdEndpoint
 	}
 
 	// Give the cluster some time to propagate AppendEntries.
@@ -92,19 +93,19 @@ func HealthCheck(running map[string]*common.EtcdConfig) error {
 	resp2, err := client.Get("/", false, false)
 	if err != nil {
 		log.Errorf("Could not query cluster: %s", err)
-		return common.ErrEtcdEndpoint
+		return errors.ErrEtcdEndpoint
 	}
 
 	if resp1.RaftTerm != resp2.RaftTerm {
 		log.Error("Raft terms has increased while monitoring for " +
 			"1 second.  Leader is unstable.")
-		return common.ErrEtcdRaftTermInstability
+		return errors.ErrEtcdRaftTermInstability
 	}
 
 	if resp1.RaftIndex == resp2.RaftIndex {
 		log.Error("Raft commit index has not increased while " +
 			"monitoring for 1 second.  The cluster is not making progress.")
-		return common.ErrEtcdRaftStall
+		return errors.ErrEtcdRaftStall
 	}
 	return nil
 }

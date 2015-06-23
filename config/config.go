@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package common
+package config
 
 import (
 	"errors"
@@ -25,7 +25,7 @@ import (
 	"strings"
 )
 
-type EtcdConfig struct {
+type Etcd struct {
 	Name       string `json:"name"`
 	Task       string `json:"task"`
 	Host       string `json:"host"`
@@ -35,31 +35,31 @@ type EtcdConfig struct {
 	SlaveID    string `json:"slaveID"`
 }
 
-func StrToEtcdConfig(input string) (*EtcdConfig, error) {
-	splits := strings.Split(input, ":")
+func Parse(input string) (*Etcd, error) {
+	splits := strings.Split(input, " ")
 	if len(splits) != 4 {
-		return nil, errors.New("Invalid format for serialized EtcdConfig.")
+		return nil, errors.New("Invalid format for serialized Etcd.")
 	}
-	rpcPort, err := strconv.ParseInt(splits[2], 10, 64)
+	rpcPort, err := strconv.ParseUint(splits[2], 10, 64)
 	if err != nil {
 		return nil, err
 	}
-	clientPort, err := strconv.ParseInt(splits[3], 10, 64)
+	clientPort, err := strconv.ParseUint(splits[3], 10, 64)
 	if err != nil {
 		return nil, err
 	}
 
-	return &EtcdConfig{
+	return &Etcd{
 		Name:       splits[0],
 		Host:       splits[1],
-		RpcPort:    uint64(rpcPort),
-		ClientPort: uint64(clientPort),
+		RpcPort:    rpcPort,
+		ClientPort: clientPort,
 	}, nil
 }
 
-func EtcdConfigToStr(input EtcdConfig) string {
+func String(input *Etcd) string {
 	return fmt.Sprintf(
-		"%s:%s:%d:%d",
+		"%s %s %d %d",
 		input.Name,
 		input.Host,
 		input.RpcPort,

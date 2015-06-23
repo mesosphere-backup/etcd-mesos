@@ -16,37 +16,20 @@
  * limitations under the License.
  */
 
-package main
+package offercache
 
 import (
-	"flag"
-
-	log "github.com/golang/glog"
-	"github.com/mesos/mesos-go/executor"
-
-	etcdexecutor "github.com/mesosphere/etcd-mesos/executor"
+	"testing"
+	//"testing/quick"
 )
 
-func main() {
-	etcdCmd := flag.String("exec", "", "Etcd command to launch")
-	flag.Parse()
-
-	log.Infoln("Starting Etcd Executor")
-
-	dconfig := executor.DriverConfig{
-		Executor: etcdexecutor.NewEtcdExecutor(*etcdCmd),
-	}
-	driver, err := executor.NewMesosExecutorDriver(dconfig)
-
-	if err != nil {
-		log.Infoln("Unable to create a ExecutorDriver ", err.Error())
-	}
-
-	_, err = driver.Start()
-	if err != nil {
-		log.Infoln("Got error:", err)
-		return
-	}
-	log.Infoln("Executor process has started and running.")
-	driver.Join()
+func TestPush(t *testing.T) {
+}
+func TestRescind(t *testing.T) {
+}
+func TestBlockingPop(t *testing.T) {
+}
+func TestLen(t *testing.T) {
+}
+func Testgc(t *testing.T) {
 }

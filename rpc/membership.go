@@ -29,23 +29,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mesosphere/etcd-mesos/common"
+	"github.com/mesosphere/etcd-mesos/config"
 
 	log "github.com/golang/glog"
 )
 
-type ClusterMemberList struct {
-	Members []struct {
-		Id         string   `json:"id"`
-		Name       string   `json:"name"`
-		PeerURLS   []string `json:"peerURLS"`
-		ClientURLS []string `json:"clientURLS"`
-	} `json:"members"`
-}
-
 func ConfigureInstance(
-	running map[string]*common.EtcdConfig,
-	newInstance *common.EtcdConfig,
+	running map[string]*config.Etcd,
+	newInstance *config.Etcd,
 ) error {
 	if len(running) == 0 {
 		log.Info("No running members to configure.  Skipping configuration.")
@@ -89,7 +80,7 @@ func ConfigureInstance(
 				log.Errorf("Problem configuring instance: %s", err)
 				continue
 			}
-			var memberList ClusterMemberList
+			var memberList config.ClusterMemberList
 			err = json.Unmarshal(body, &memberList)
 			if err != nil {
 				log.Errorf("Received unexpected response: %s", string(body))
@@ -110,7 +101,7 @@ func ConfigureInstance(
 }
 
 func MemberList(
-	running map[string]*common.EtcdConfig,
+	running map[string]*config.Etcd,
 ) (nameToIdent map[string]string, err error) {
 	nameToIdent = map[string]string{}
 
@@ -143,7 +134,7 @@ func MemberList(
 				continue
 			}
 			log.Info("MemberList response:", string(body))
-			var memberList ClusterMemberList
+			var memberList config.ClusterMemberList
 			err = json.Unmarshal(body, &memberList)
 			if err != nil {
 				log.Error(err)
@@ -168,7 +159,7 @@ func MemberList(
 	return nameToIdent, err
 }
 
-func RemoveInstance(running map[string]*common.EtcdConfig, task string) error {
+func RemoveInstance(running map[string]*config.Etcd, task string) error {
 	log.Infof("Attempting to remove task %s from "+
 		"the etcd cluster configuration.", task)
 	members, err := MemberList(running)
@@ -228,7 +219,7 @@ func RemoveInstance(running map[string]*common.EtcdConfig, task string) error {
 				continue
 			}
 			var removeResponse struct {
-				Message string `json="message"`
+				Message string `json:"message"`
 			}
 			err = json.Unmarshal(body, &removeResponse)
 			// TODO(tyler) invariant: member list should no longer contain node

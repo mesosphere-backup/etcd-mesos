@@ -30,20 +30,20 @@ import (
 )
 
 const (
-	mesosMaxSlavePingTimeouts = 5
-	mesosSlavePingTimeout     = 15 * time.Second
+	defaultMesosMaxSlavePingTimeouts = 5
+	defaultMesosSlavePingTimeout     = 15 * time.Second
 )
 
 type etcdExecutor struct {
 	cancelSuicide chan struct{}
 	tasksLaunched int
-	etcdCmd       string
+	cmd           string
 }
 
-func NewEtcdExecutor(etcdCmd string) *etcdExecutor {
+func New(cmd string) *etcdExecutor {
 	return &etcdExecutor{
 		cancelSuicide: make(chan struct{}),
-		etcdCmd:       etcdCmd,
+		cmd:           cmd,
 	}
 }
 
@@ -67,8 +67,9 @@ func (e *etcdExecutor) Reregistered(
 
 func (e *etcdExecutor) Disconnected(executor.ExecutorDriver) {
 	log.Infoln("Executor disconnected.")
-	const suicideTimeout = ((mesosMaxSlavePingTimeouts + 1) *
-		mesosSlavePingTimeout)
+
+	const suicideTimeout = ((defaultMesosMaxSlavePingTimeouts + 1) *
+		defaultMesosSlavePingTimeout)
 	go func() {
 		select {
 		case <-e.cancelSuicide:
@@ -105,8 +106,8 @@ func (e *etcdExecutor) LaunchTask(
 	log.Infoln("Total tasks launched ", e.tasksLaunched)
 
 	go func() {
-		log.Infoln("calling command: ", e.etcdCmd)
-		parts := strings.Fields(e.etcdCmd)
+		log.Infoln("calling command: ", e.cmd)
+		parts := strings.Fields(e.cmd)
 		head, tail := parts[0], parts[1:]
 		command := exec.Command(head, tail...)
 		command.Stdout = os.Stdout

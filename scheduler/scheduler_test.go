@@ -19,66 +19,17 @@
 package scheduler
 
 import (
-	"encoding/json"
-	"errors"
-	"net"
-	"net/http"
-	"net/http/httptest"
 	"strconv"
-	"strings"
-	"testing"
+	gotesting "testing"
 
 	"github.com/gogo/protobuf/proto"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 	util "github.com/mesos/mesos-go/mesosutil"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/mesosphere/etcd-mesos/common"
-	"github.com/mesosphere/etcd-mesos/rpc"
+	"github.com/mesosphere/etcd-mesos/config"
+	emtesting "github.com/mesosphere/etcd-mesos/testing"
 )
-
-type TestEtcdServer struct {
-	server *httptest.Server
-}
-
-func NewTestEtcdServer(t *testing.T, memberList rpc.ClusterMemberList) (*TestEtcdServer, int64, error) {
-	ts := TestEtcdServer{}
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/v2/members", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		serializedMemberList, err := json.Marshal(&memberList)
-		if err == nil {
-			w.Write(serializedMemberList)
-		} else {
-			t.Fatal("Could not serialize test ClusterMemberList.")
-		}
-	})
-
-	ts.server = httptest.NewServer(mux)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, 0, err
-	}
-
-	go func() {
-		err = http.Serve(listener, mux)
-		if err != nil {
-			t.Fatalf("Test Etcd server failed! %s", err)
-		}
-	}()
-
-	parts := strings.Split(listener.Addr().String(), ":")
-	if len(parts) != 2 {
-		return nil, 0, errors.New("Bad address: " + listener.Addr().String())
-	}
-	port, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return nil, 0, errors.New("Could not parse port into an int: " + parts[1])
-	}
-
-	return &ts, port, nil
-}
 
 func NewOffer(id string) *mesos.Offer {
 	return &mesos.Offer{
@@ -97,10 +48,10 @@ func NewOffer(id string) *mesos.Offer {
 	}
 }
 
-func TestStartup(t *testing.T) {
+func TestStartup(t *gotesting.T) {
 	mockdriver := &MockSchedulerDriver{}
 	testScheduler := NewEtcdScheduler(1, 0, []*mesos.CommandInfo_URI{})
-	testScheduler.running = map[string]*common.EtcdConfig{
+	testScheduler.running = map[string]*config.Etcd{
 		"etcd-1": nil,
 		"etcd-2": nil,
 	}
@@ -127,7 +78,7 @@ func TestStartup(t *testing.T) {
 	mockdriver.AssertExpectations(t)
 }
 
-func TestReconciliationOnStartup(t *testing.T) {
+func TestReconciliationOnStartup(t *gotesting.T) {
 	testScheduler := NewEtcdScheduler(3, 0, []*mesos.CommandInfo_URI{})
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
@@ -142,15 +93,15 @@ func TestReconciliationOnStartup(t *testing.T) {
 
 	for _, taskStatus := range []*mesos.TaskStatus{
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-1:localhost:0:0"),
+			util.NewTaskID("etcd-1 localhost 0 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-2:localhost:0:0"),
+			util.NewTaskID("etcd-2 localhost 0 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-3:localhost:0:0"),
+			util.NewTaskID("etcd-3 localhost 0 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 	} {
@@ -169,14 +120,14 @@ func TestReconciliationOnStartup(t *testing.T) {
 	mockdriver.AssertExpectations(t)
 }
 
-func TestGrowToDesiredAfterReconciliation(t *testing.T) {
+func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 	testScheduler := NewEtcdScheduler(3, 0, []*mesos.CommandInfo_URI{})
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
 		scheduler:       testScheduler,
 	}
 	testScheduler.state = Mutable
-	testScheduler.healthCheck = func(map[string]*common.EtcdConfig) error {
+	testScheduler.healthCheck = func(map[string]*config.Etcd) error {
 		return nil
 	}
 
@@ -188,7 +139,7 @@ func TestGrowToDesiredAfterReconciliation(t *testing.T) {
 	} {
 		testScheduler.offerCache.Push(offer)
 	}
-	memberList := rpc.ClusterMemberList{
+	memberList := config.ClusterMemberList{
 		Members: []struct {
 			Id         string   `json:"id"`
 			Name       string   `json:"name"`
@@ -210,12 +161,12 @@ func TestGrowToDesiredAfterReconciliation(t *testing.T) {
 		},
 	}
 
-	_, port1, err := NewTestEtcdServer(t, memberList)
+	_, port1, err := emtesting.NewTestEtcdServer(t, memberList)
 	if err != nil {
 		t.Fatalf("Failed to create test etcd server: %s", err)
 	}
 
-	_, port2, err := NewTestEtcdServer(t, memberList)
+	_, port2, err := emtesting.NewTestEtcdServer(t, memberList)
 	if err != nil {
 		t.Fatalf("Failed to create test etcd server: %s", err)
 	}
@@ -228,11 +179,11 @@ func TestGrowToDesiredAfterReconciliation(t *testing.T) {
 
 	for _, taskStatus := range []*mesos.TaskStatus{
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-1:localhost:0:"+strconv.Itoa(int(port1))),
+			util.NewTaskID("etcd-1 localhost 0 "+strconv.Itoa(int(port1))),
 			mesos.TaskState_TASK_RUNNING,
 		),
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-2:localhost:0:"+strconv.Itoa(int(port2))),
+			util.NewTaskID("etcd-2 localhost 0 "+strconv.Itoa(int(port2))),
 			mesos.TaskState_TASK_RUNNING,
 		),
 	} {
@@ -247,7 +198,7 @@ func TestGrowToDesiredAfterReconciliation(t *testing.T) {
 			offer.Id,
 		},
 		[]*mesos.TaskInfo{
-			&mesos.TaskInfo{
+			{
 				Resources: []*mesos.Resource{
 					util.NewScalarResource("cpus", cpusPerTask),
 					util.NewScalarResource("mem", memPerTask),
@@ -277,7 +228,7 @@ func TestGrowToDesiredAfterReconciliation(t *testing.T) {
 	mockdriver.AssertExpectations(t)
 }
 
-func ZestScheduler(t *testing.T) {
+func ZestScheduler(t *gotesting.T) {
 	mockdriver := &MockSchedulerDriver{}
 
 	mockdriver.On("KillTask", util.NewTaskID("test-task-001")).Return(mesos.Status_DRIVER_RUNNING, nil)

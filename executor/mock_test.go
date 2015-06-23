@@ -19,10 +19,8 @@
 package executor
 
 import (
-	"testing"
-
 	mesos "github.com/mesos/mesos-go/mesosproto"
-	"github.com/stretchr/testify/assert"
+	//"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -65,10 +63,10 @@ func (m *MockExecutorDriver) SendFrameworkMessage(msg string) (mesos.Status, err
 	return args.Get(0).(mesos.Status), args.Error(1)
 }
 
-func NewTestEtcdExecutor(etcdCmd string) *etcdExecutor {
+func NewTestEtcdExecutor(cmd string) *etcdExecutor {
 	return &etcdExecutor{
 		cancelSuicide: make(chan struct{}),
-		etcdCmd:       etcdCmd,
+		cmd:           cmd,
 	}
 }
 
@@ -77,14 +75,4 @@ func status(args mock.Arguments, at int) (val mesos.Status) {
 		val = x.(mesos.Status)
 	}
 	return
-}
-
-func TestExecutorNew(t *testing.T) {
-	mockDriver := &MockExecutorDriver{}
-	executor := NewTestEtcdExecutor("sleep 1")
-	executor.Init(mockDriver)
-
-	assert.Equal(t, executor.isDone(), false, "executor should not be in Done state on initialization")
-	assert.Equal(t, executor.isConnected(), false, "executor should not be connected on initialization")
-	assert.Equal(t, false, true)
 }

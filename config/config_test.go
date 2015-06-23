@@ -16,14 +16,16 @@
  * limitations under the License.
  */
 
-package common
+package config
 
-import "errors"
+import (
+	"testing"
 
-var (
-	ErrNoLeader                = errors.New("no raft leader found")
-	ErrEtcdConnection          = errors.New("could not contact endpoint")
-	ErrEtcdEndpoint            = errors.New("Could not query cluster")
-	ErrEtcdRaftTermInstability = errors.New("Raft term (and leader) is unstable.")
-	ErrEtcdRaftStall           = errors.New("non-increasing raft commit index")
+	"github.com/stretchr/testify/assert"
 )
+
+func TestEtcdConfig(t *testing.T) {
+	etcd := &Etcd{}
+	parsedEtcd, _ := Parse(String(etcd))
+	assert.Equal(t, parsedEtcd, etcd)
+}

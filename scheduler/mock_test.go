@@ -88,7 +88,7 @@ func (m *MockSchedulerDriver) LaunchTasks(offerIds []*mesos.OfferID, ti []*mesos
 
 	// Too much dynamic stuff for comparison, just look at Resources.
 	tasks := []*mesos.TaskInfo{
-		&mesos.TaskInfo{
+		{
 			Resources: ti[0].Resources,
 		},
 	}

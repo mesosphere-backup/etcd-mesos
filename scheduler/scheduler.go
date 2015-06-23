@@ -20,7 +20,7 @@ package scheduler
 
 import (
 	"bytes"
-	"errors"
+	goerrors "errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -38,7 +38,7 @@ import (
 	"github.com/mesos/mesos-go/scheduler"
 	"github.com/samuel/go-zookeeper/zk"
 
-	"github.com/mesosphere/etcd-mesos/common"
+	"github.com/mesosphere/etcd-mesos/config"
 	"github.com/mesosphere/etcd-mesos/offercache"
 	"github.com/mesosphere/etcd-mesos/rpc"
 )
@@ -79,7 +79,7 @@ type EtcdScheduler struct {
 	mut                    sync.RWMutex
 	state                  State
 	pending                map[string]struct{}
-	running                map[string]*common.EtcdConfig
+	running                map[string]*config.Etcd
 	highestInstanceID      int64
 	executorUris           []*mesos.CommandInfo_URI
 	offerCache             *offercache.OfferCache
@@ -96,11 +96,11 @@ type EtcdScheduler struct {
 	ZkServers              []string
 	desiredInstanceCount   int
 	SingleInstancePerSlave bool
-	healthCheck            func(map[string]*common.EtcdConfig) error
+	healthCheck            func(map[string]*config.Etcd) error
 }
 
 type EtcdParams struct {
-	common.EtcdConfig
+	config.Etcd
 	Cluster string
 }
 
@@ -118,7 +118,7 @@ func NewEtcdScheduler(
 ) *EtcdScheduler {
 	return &EtcdScheduler{
 		state:                Immutable,
-		running:              map[string]*common.EtcdConfig{},
+		running:              map[string]*config.Etcd{},
 		pending:              map[string]struct{}{},
 		highestInstanceID:    time.Now().Unix(),
 		executorUris:         executorUris,
@@ -252,7 +252,7 @@ func (s *EtcdScheduler) StatusUpdate(
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
-	etcdConfig, err := common.StrToEtcdConfig(status.GetTaskId().GetValue())
+	etcdConfig, err := config.Parse(status.GetTaskId().GetValue())
 	if err != nil {
 		log.Errorf("!!!! Could not deserialize taskid into EtcdConfig: %s", err)
 		return
@@ -354,7 +354,7 @@ func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
 	// Reset mutable state
 	s.mut.Lock()
-	s.running = map[string]*common.EtcdConfig{}
+	s.running = map[string]*config.Etcd{}
 	s.mut.Unlock()
 
 	// Pump the brakes to allow some time for reconciliation.
@@ -418,7 +418,7 @@ func (s *EtcdScheduler) PeriodicLaunchRequestor() {
 func (s *EtcdScheduler) PeriodicPruner() {
 	for {
 		s.mut.RLock()
-		runningCopy := map[string]*common.EtcdConfig{}
+		runningCopy := map[string]*config.Etcd{}
 		for k, v := range s.running {
 			runningCopy[k] = v
 		}
@@ -430,7 +430,7 @@ func (s *EtcdScheduler) PeriodicPruner() {
 					err)
 			} else {
 				s.mut.RLock()
-				for k, _ := range configuredMembers {
+				for k := range configuredMembers {
 					_, present := s.running[k]
 					if !present {
 						// TODO(tyler) only do this after we've allowed time to settle after
@@ -538,7 +538,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 				if etcdConfig.SlaveID == offer.SlaveId.GetValue() {
 					log.Infoln("Already running an etcd instance on this slave.")
 					if s.SingleInstancePerSlave {
-						return nil, errors.New("Already running on slave.")
+						return nil, goerrors.New("Already running on slave.")
 					}
 					log.Infoln("Launching anyway due to -single-instance-per-slave " +
 						"argument of false.")
@@ -578,7 +578,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	}
 
 	name := "etcd-" + strconv.FormatInt(s.highestInstanceID, 10)
-	instance := &common.EtcdConfig{
+	instance := &config.Etcd{
 		Name:       name,
 		Host:       *offer.Hostname,
 		RpcPort:    rpcPort,
@@ -586,13 +586,13 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		Type:       clusterType,
 		SlaveID:    offer.GetSlaveId().GetValue(),
 	}
-	running := []*common.EtcdConfig{instance}
+	running := []*config.Etcd{instance}
 	for _, r := range s.running {
 		running = append(running, r)
 	}
-	config := formatConfig(instance, running)
+	etcdConfig := formatConfig(instance, running)
 
-	serializedConfig := common.EtcdConfigToStr(*instance)
+	serializedConfig := config.String(instance)
 
 	stringSerializedConfig := string(serializedConfig)
 	// TODO(tyler) set data to serialized conf, recompute the rest from our
@@ -601,7 +601,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		Value: &stringSerializedConfig,
 	}
 
-	executor := s.prepareExecutorInfo(instance, s.executorUris, config)
+	executor := s.prepareExecutorInfo(instance, s.executorUris, etcdConfig)
 	task := &mesos.TaskInfo{
 		Name:     proto.String(name),
 		TaskId:   taskId,
@@ -622,7 +622,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		task.GetName(),
 		offer.Id.GetValue(),
 	)
-	log.Infof("Launching etcd instance with command: %s", config)
+	log.Infof("Launching etcd instance with command: %s", etcdConfig)
 
 	tasks := []*mesos.TaskInfo{task}
 	log.Infoln("Launching ", len(tasks), "tasks for offer", offer.Id.GetValue())
@@ -709,7 +709,7 @@ func ServeExecutorArtifact(path, address string, artifactPort int) *string {
 	return &hostURI
 }
 
-func (s *EtcdScheduler) prepareExecutorInfo(instance *common.EtcdConfig,
+func (s *EtcdScheduler) prepareExecutorInfo(instance *config.Etcd,
 	executorUris []*mesos.CommandInfo_URI,
 	etcdExec string) *mesos.ExecutorInfo {
 
@@ -735,8 +735,8 @@ func (s *EtcdScheduler) prepareExecutorInfo(instance *common.EtcdConfig,
 }
 
 func formatConfig(
-	newServer *common.EtcdConfig,
-	existingServers []*common.EtcdConfig,
+	newServer *config.Etcd,
+	existingServers []*config.Etcd,
 ) string {
 	formatted := make([]string, 0, len(existingServers))
 	for _, e := range existingServers {
@@ -744,7 +744,7 @@ func formatConfig(
 			fmt.Sprintf("%s=http://%s:%d", e.Name, e.Host, e.RpcPort))
 	}
 
-	params := EtcdParams{EtcdConfig: *newServer}
+	params := EtcdParams{Etcd: *newServer}
 	params.Cluster = strings.Join(formatted, ",")
 
 	var config bytes.Buffer

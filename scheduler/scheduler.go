@@ -76,6 +76,18 @@ const (
 )
 
 type EtcdScheduler struct {
+	RestorePath            string
+	Master                 string
+	ExecutorPath           string
+	EtcdPath               string
+	ClusterName            string
+	ZkConnect              string
+	ZkChroot               string
+	ZkServers              []string
+	SingleInstancePerSlave bool
+	desiredInstanceCount   int
+	healthCheck            func(map[string]*config.Etcd) error
+	shutdown               func()
 	mut                    sync.RWMutex
 	state                  State
 	pending                map[string]struct{}
@@ -86,17 +98,6 @@ type EtcdScheduler struct {
 	launchChan             chan struct{}
 	pauseChan              chan struct{}
 	chillFactor            time.Duration
-	RestorePath            string
-	Master                 string
-	ExecutorPath           string
-	EtcdPath               string
-	ClusterName            string
-	ZkConnect              string
-	ZkChroot               string
-	ZkServers              []string
-	desiredInstanceCount   int
-	SingleInstancePerSlave bool
-	healthCheck            func(map[string]*config.Etcd) error
 }
 
 type EtcdParams struct {
@@ -129,6 +130,7 @@ func NewEtcdScheduler(
 		pauseChan:            make(chan struct{}, 2048),
 		offerCache:           offercache.NewOfferCache(desiredInstanceCount),
 		healthCheck:          rpc.HealthCheck,
+		shutdown:             func() { os.Exit(1) },
 	}
 }
 
@@ -149,7 +151,10 @@ func (s *EtcdScheduler) Registered(
 			s.ClusterName,
 		)
 		if err != nil && err != zk.ErrNodeExists {
-			log.Fatalf("Failed to persist framework ID: %s", err)
+			log.Errorf("Failed to persist framework ID: %s", err)
+			if s.shutdown != nil {
+				s.shutdown()
+			}
 		} else if err == zk.ErrNodeExists {
 			log.Warning("Framework ID is already persisted for this cluster.")
 		}
@@ -342,10 +347,13 @@ func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 	if err == "Completed framework attempted to re-register" {
 		// TODO(tyler) automatically restart, don't expect this to be restarted externally
 		rpc.ClearZKState(s.ZkServers, s.ZkChroot, s.ClusterName)
-		log.Fatalf(
+		log.Error(
 			"Removing reference to completed " +
 				"framework in zookeeper and dying.",
 		)
+		if s.shutdown != nil {
+			s.shutdown()
+		}
 	}
 }
 
@@ -379,8 +387,11 @@ func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
 		time.Sleep(time.Duration(backoff) * time.Second)
 		backoff = int(math.Min(float64(backoff<<1), 8))
 	}
-	log.Fatal("Failed to call ReconcileTasks!  " +
+	log.Error("Failed to call ReconcileTasks!  " +
 		"It is dangerous to continue at this point.  Dying.")
+	if s.shutdown != nil {
+		s.shutdown()
+	}
 }
 
 func (s *EtcdScheduler) QueueLaunchAttempt() {
@@ -618,7 +629,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	}
 
 	log.Infof(
-		"Prepared task: %s with offer %s for launch\n",
+		"Prepared task: %s with offer %s for launch",
 		task.GetName(),
 		offer.Id.GetValue(),
 	)

@@ -87,7 +87,7 @@ func ConfigureInstance(
 				log.Errorf("Failed to unmarshal json: %s", err)
 				continue
 			}
-			log.Infof("Successfully configured new node: %+v\n", memberList)
+			log.Infof("Successfully configured new node: %+v", memberList)
 			return nil
 
 			// TODO(tyler) invariant: member list should now contain node
@@ -144,7 +144,7 @@ func MemberList(
 				err = errors.New("Remote node returned an empty etcd member list.")
 				continue
 			}
-			log.Infof("got member list: %+v\n", memberList)
+			log.Infof("got member list: %+v", memberList)
 
 			for _, m := range memberList.Members {
 				nameToIdent[m.Name] = m.Id

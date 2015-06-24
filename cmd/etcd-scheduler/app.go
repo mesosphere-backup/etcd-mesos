@@ -177,7 +177,7 @@ func main() {
 	go etcdScheduler.PeriodicPruner()
 
 	if stat, err := driver.Run(); err != nil {
-		log.Infof("Framework stopped with status %s and error: %s\n",
+		log.Infof("Framework stopped with status %s and error: %s",
 			stat.String(),
 			err.Error())
 	}

@@ -38,12 +38,14 @@ type etcdExecutor struct {
 	cancelSuicide chan struct{}
 	tasksLaunched int
 	cmd           string
+	shutdown      func()
 }
 
 func New(cmd string) *etcdExecutor {
 	return &etcdExecutor{
 		cancelSuicide: make(chan struct{}),
 		cmd:           cmd,
+		shutdown:      func() { os.Exit(1) },
 	}
 }
 
@@ -61,8 +63,19 @@ func (e *etcdExecutor) Reregistered(
 	slaveInfo *mesos.SlaveInfo,
 ) {
 	log.Infoln("Re-registered Executor on slave ", slaveInfo.GetHostname())
-	close(e.cancelSuicide)
-	e.cancelSuicide = make(chan struct{})
+
+	// Coax any jumpers back from the cliff.
+	cancelOne := func() bool {
+		select {
+		case e.cancelSuicide <- struct{}{}:
+			return true
+		default:
+			return false
+		}
+	}
+	// Cancel until none left, although more than once should not happen.
+	for cancelOne() {
+	}
 }
 
 func (e *etcdExecutor) Disconnected(executor.ExecutorDriver) {
@@ -74,10 +87,13 @@ func (e *etcdExecutor) Disconnected(executor.ExecutorDriver) {
 		select {
 		case <-e.cancelSuicide:
 		case <-time.After(suicideTimeout):
-			log.Fatalf("Lost connection to local slave for %s seconds. "+
+			log.Errorf("Lost connection to local slave for %s seconds. "+
 				"This is longer than the mesos master<->slave timeout, so "+
 				"we cannot avoid termination at this point. Exiting.",
 				suicideTimeout/time.Second)
+			if e.shutdown != nil {
+				e.shutdown()
+			}
 		}
 	}()
 }
@@ -93,15 +109,6 @@ func (e *etcdExecutor) LaunchTask(
 		taskInfo.Command.GetValue(),
 	)
 
-	runStatus := &mesos.TaskStatus{
-		TaskId: taskInfo.GetTaskId(),
-		State:  mesos.TaskState_TASK_RUNNING.Enum(),
-	}
-	_, err := driver.SendStatusUpdate(runStatus)
-	if err != nil {
-		log.Infoln("Got error", err)
-	}
-
 	e.tasksLaunched++
 	log.Infoln("Total tasks launched ", e.tasksLaunched)
 
@@ -113,7 +120,25 @@ func (e *etcdExecutor) LaunchTask(
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stdout
 		command.Start()
-		command.Wait()
+
+		runStatus := &mesos.TaskStatus{
+			TaskId: taskInfo.GetTaskId(),
+			State:  mesos.TaskState_TASK_RUNNING.Enum(),
+		}
+		_, err := driver.SendStatusUpdate(runStatus)
+		if err != nil {
+			log.Infoln("Got error sending status update: ", err)
+		}
+
+		err = command.Wait()
+		if err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				// TODO: process exited with non-zero status
+				log.Errorf("Process exited with nonzero exit status: %+v", exitError)
+			} else {
+				// TODO: I/O problems...
+			}
+		}
 
 		// TODO add monitoring
 

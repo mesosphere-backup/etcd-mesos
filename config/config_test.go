@@ -25,7 +25,20 @@ import (
 )
 
 func TestEtcdConfig(t *testing.T) {
-	etcd := &Etcd{}
+	etcd := &Etcd{
+		Name:       "test",
+		Host:       "test",
+		RpcPort:    1,
+		ClientPort: 1,
+	}
+
 	parsedEtcd, _ := Parse(String(etcd))
 	assert.Equal(t, parsedEtcd, etcd)
+
+	_, err := Parse("clearly invalid")
+	assert.NotNil(t, err, "Invalid strings should not deserialize.")
+	_, err = Parse("etcd-1 somehost a b")
+	assert.NotNil(t, err, "Invalid strings should not deserialize.")
+	_, err = Parse("etcd-1 somehost 1 b")
+	assert.NotNil(t, err, "Invalid strings should not deserialize.")
 }

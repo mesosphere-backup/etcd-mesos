@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -279,7 +280,9 @@ func (s *EtcdScheduler) StatusUpdate(
 		s.PumpTheBrakes()
 		delete(s.running, etcdConfig.Name)
 		go func() {
-			rpc.RemoveInstance(s.running, etcdConfig.Name)
+			if err := rpc.RemoveInstance(s.running, etcdConfig.Name); err != nil {
+				log.Errorf("Failed to remove instance: %s", err)
+			}
 			s.QueueLaunchAttempt()
 		}()
 	case mesos.TaskState_TASK_RUNNING:
@@ -359,6 +362,16 @@ func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 
 // ----------------------- helper functions ------------------------- //
 
+func (s *EtcdScheduler) RunningCopy() map[string]*config.Etcd {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	runningCopy := map[string]*config.Etcd{}
+	for k, v := range s.running {
+		runningCopy[k] = v
+	}
+	return runningCopy
+}
+
 func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
 	// Reset mutable state
 	s.mut.Lock()
@@ -428,36 +441,40 @@ func (s *EtcdScheduler) PeriodicLaunchRequestor() {
 
 func (s *EtcdScheduler) PeriodicPruner() {
 	for {
-		s.mut.RLock()
-		runningCopy := map[string]*config.Etcd{}
-		for k, v := range s.running {
-			runningCopy[k] = v
-		}
-		s.mut.RUnlock()
-		if s.state == Mutable {
-			configuredMembers, err := rpc.MemberList(runningCopy)
-			if err != nil {
-				log.Errorf("PeriodicPruner could not retrieve current member list: %s",
-					err)
-			} else {
-				s.mut.RLock()
-				for k := range configuredMembers {
-					_, present := s.running[k]
-					if !present {
-						// TODO(tyler) only do this after we've allowed time to settle after
-						// reconciliation, or we will nuke valid nodes!
-						log.Warningf("PeriodicPruner attempting to deconfigure unknown etcd "+
-							"instance: %s", k)
-						rpc.RemoveInstance(s.running, k)
-					}
-				}
-				s.mut.RUnlock()
-			}
-		} else {
-			log.Info("PeriodicPruner skipping due to Immutable scheduler state.")
-		}
+		s.Prune()
 		time.Sleep(4 * s.chillFactor * time.Second)
 	}
+}
+
+func (s *EtcdScheduler) Prune() error {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	if s.state == Mutable {
+		configuredMembers, err := rpc.MemberList(s.running)
+		if err != nil {
+			log.Errorf("PeriodicPruner could not retrieve current member list: %s",
+				err)
+			return err
+		} else {
+			for k := range configuredMembers {
+				_, present := s.running[k]
+				if !present {
+					// TODO(tyler) only do this after we've allowed time to settle after
+					// reconciliation, or we will nuke valid nodes!
+					log.Warningf("PeriodicPruner attempting to deconfigure unknown etcd "+
+						"instance: %s", k)
+					if err := rpc.RemoveInstance(s.running, k); err != nil {
+						log.Errorf("Failed to remove instance: %s", err)
+					} else {
+						return nil
+					}
+				}
+			}
+		}
+	} else {
+		log.Info("PeriodicPruner skipping due to Immutable scheduler state.")
+	}
+	return nil
 }
 
 // SerialLauncher performs the launching of all tasks in a time-limited
@@ -502,6 +519,12 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	log.Infoln("Attempting to launch a task.")
 	s.mut.RLock()
 
+	if s.state != Mutable {
+		log.Infoln("Scheduler is not mutable.  Not launching a task.")
+		s.mut.RUnlock()
+		return
+	}
+
 	log.Infof(
 		"running instances: %d desired: %d offers: %d",
 		len(s.running), s.desiredInstanceCount, s.offerCache.Len(),
@@ -537,6 +560,11 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		return
 	}
 	s.mut.RUnlock()
+	err = s.Prune()
+	if err != nil {
+		log.Errorf("Failed to remove stale cluster members: %s", err)
+		return
+	}
 
 	// Issue BlockingPop until we get back an offer we can use.
 	var offer *mesos.Offer

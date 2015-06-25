@@ -228,10 +228,8 @@ func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 	mockdriver.AssertExpectations(t)
 }
 
-func ZestScheduler(t *gotesting.T) {
+func TestScheduler(t *gotesting.T) {
 	mockdriver := &MockSchedulerDriver{}
-
-	mockdriver.On("KillTask", util.NewTaskID("test-task-001")).Return(mesos.Status_DRIVER_RUNNING, nil)
 
 	ntasks := 1
 	chillFactor := 0
@@ -241,19 +239,19 @@ func ZestScheduler(t *gotesting.T) {
 	testScheduler.state = Mutable
 
 	taskStatus_task_starting := util.NewTaskStatus(
-		util.NewTaskID("test-task-001"),
+		util.NewTaskID("etcd-1 localhost 1 1"),
 		mesos.TaskState_TASK_RUNNING,
 	)
 	testScheduler.StatusUpdate(mockdriver, taskStatus_task_starting)
 
 	taskStatus_task_running := util.NewTaskStatus(
-		util.NewTaskID("test-task-001"),
+		util.NewTaskID("etcd-1 localhost 1 1"),
 		mesos.TaskState_TASK_RUNNING,
 	)
 	testScheduler.StatusUpdate(mockdriver, taskStatus_task_running)
 
 	taskStatus_task_failed := util.NewTaskStatus(
-		util.NewTaskID("test-task-001"),
+		util.NewTaskID("etcd-1 localhost 1 1"),
 		mesos.TaskState_TASK_FAILED,
 	)
 	testScheduler.StatusUpdate(mockdriver, taskStatus_task_failed)

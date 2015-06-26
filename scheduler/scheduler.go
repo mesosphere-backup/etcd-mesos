@@ -776,16 +776,15 @@ func (s *EtcdScheduler) newExecutorInfo(
 
 // command returns an etcd command templated with the given Nodes.
 func command(nodes ...*config.Node) (string, error) {
-	var cluster bytes.Buffer
+	cluster := make([]string, 0, len(nodes))
 	for _, n := range nodes[1:] {
-		fmt.Fprintf(&cluster, "%s=http://%s:%d,", n.Name, n.Host, n.RPCPort)
+		cluster = append(cluster, fmt.Sprintf("%s=http://%s:%d", n.Name, n.Host, n.RPCPort))
 	}
-	cluster.Truncate(cluster.Len() - 1)
 
 	var out bytes.Buffer
 	err := cmdTemplate.Execute(&out, EtcdParams{
 		Node:    *nodes[0],
-		Cluster: cluster.String(),
+		Cluster: strings.Join(cluster, ","),
 	})
 	return out.String(), err
 }

@@ -1,0 +1,4 @@
+[submodule "vendor/coreos/etcd"]
+	path = vendor/coreos/etcd
+	url = git@github.com:coreos/etcd.git
+	branch = v2.0.11

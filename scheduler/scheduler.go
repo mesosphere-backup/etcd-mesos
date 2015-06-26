@@ -20,6 +20,7 @@ package scheduler
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -776,8 +777,12 @@ func (s *EtcdScheduler) newExecutorInfo(
 
 // command returns an etcd command templated with the given Nodes.
 func command(nodes ...*config.Node) (string, error) {
+	if len(nodes) == 0 {
+		return "", errors.New("No nodes to configure.")
+	}
+
 	cluster := make([]string, 0, len(nodes))
-	for _, n := range nodes[1:] {
+	for _, n := range nodes {
 		cluster = append(cluster, fmt.Sprintf("%s=http://%s:%d", n.Name, n.Host, n.RPCPort))
 	}
 

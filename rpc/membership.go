@@ -77,14 +77,14 @@ func ConfigureInstance(
 
 			body, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
-				log.Errorf("Problem configuring instance: %s", err)
+				log.Errorf("Problem configuring instance: %v", err)
 				continue
 			}
 			var memberList config.ClusterMemberList
 			err = json.Unmarshal(body, &memberList)
 			if err != nil {
 				log.Errorf("Received unexpected response: %s", string(body))
-				log.Errorf("Failed to unmarshal json: %s", err)
+				log.Errorf("Failed to unmarshal json: %v", err)
 				continue
 			}
 			log.Infof("Successfully configured new node: %+v", memberList)
@@ -123,14 +123,14 @@ func MemberList(
 			}
 			resp, err := client.Get(url)
 			if err != nil {
-				log.Error("Could not query %s for member list: %+v", args.Host, err)
+				log.Errorf("Could not query %s for member list: %+v", args.Host, err)
 				continue
 			}
 			defer resp.Body.Close()
 
 			body, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
-				log.Error("could not query %s for member list", args.Host)
+				log.Errorf("could not query %s for member list", args.Host)
 				continue
 			}
 			log.Info("MemberList response:", string(body))
@@ -206,7 +206,7 @@ func RemoveInstance(running map[string]*config.Etcd, task string) error {
 			body, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
 				outerErr = err
-				log.Errorf("Problem removing instance for this attempt: %s", err)
+				log.Errorf("Problem removing instance for this attempt: %v", err)
 				continue
 			}
 			log.Info("RemoveInstance response: ", string(body))
@@ -225,7 +225,7 @@ func RemoveInstance(running map[string]*config.Etcd, task string) error {
 			if err != nil {
 				outerErr = err
 				log.Errorf("Received unexpected response: %s", string(body))
-				log.Errorf("Failed to unmarshal json: %s", err)
+				log.Errorf("Failed to unmarshal json: %v", err)
 				continue
 			}
 			if strings.HasPrefix(

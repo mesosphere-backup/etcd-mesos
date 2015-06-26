@@ -54,20 +54,17 @@ func (oc *OfferCache) Push(newOffer *mesos.Offer) bool {
 
 		// Try to add offer to the queue, clearing out invalid
 		// offers in order to make room if necessary.
-		for {
+		for i := 0; i < 2; i++ {
 			select {
 			case oc.offerQueue <- newOffer:
 				return true
 			default:
-				oc.mut.Unlock()
 				oc.gc()
-				oc.mut.Lock()
 			}
 		}
-	} else {
-		log.Info("We already have enough offers cached.")
-		return false
 	}
+	log.Info("We already have enough offers cached.")
+	return false
 }
 
 func (oc *OfferCache) Rescind(offerId *mesos.OfferID) {
@@ -79,9 +76,9 @@ func (oc *OfferCache) Rescind(offerId *mesos.OfferID) {
 func (oc *OfferCache) BlockingPop() *mesos.Offer {
 	for {
 		offer := <-oc.offerQueue
+		oc.mut.Lock()
+		defer oc.mut.Unlock()
 		if _, ok := oc.offerSet[offer.GetId().GetValue()]; ok {
-			oc.mut.Lock()
-			defer oc.mut.Unlock()
 			delete(oc.offerSet, offer.GetId().GetValue())
 			return offer
 		}
@@ -94,9 +91,9 @@ func (oc *OfferCache) Len() int {
 	return len(oc.offerSet)
 }
 
+// Not thread safe!  It is expected that any callers of this
+// will handle their own synchronization.
 func (oc *OfferCache) gc() {
-	oc.mut.Lock()
-	defer oc.mut.Unlock()
 	for i := 0; i < len(oc.offerSet)+1; i++ {
 		select {
 		case offer := <-oc.offerQueue:

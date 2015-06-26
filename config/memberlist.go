@@ -18,11 +18,12 @@
 
 package config
 
+import (
+	"github.com/coreos/etcd/etcdserver/etcdhttp/httptypes"
+)
+
+// ClusterMemberList is used for deserializing the responses from
+// the etcd cluster members.
 type ClusterMemberList struct {
-	Members []struct {
-		Id         string   `json:"id"`
-		Name       string   `json:"name"`
-		PeerURLS   []string `json:"peerURLS"`
-		ClientURLS []string `json:"clientURLS"`
-	} `json:"members"`
+	Members []httptypes.Member `json:"members"`
 }

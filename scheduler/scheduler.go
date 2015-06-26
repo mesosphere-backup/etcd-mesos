@@ -20,7 +20,6 @@ package scheduler
 
 import (
 	"bytes"
-	goerrors "errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -60,16 +59,17 @@ const (
 	`
 )
 
+// State represents the mutability of the scheduler.
 type State int32
 
 const (
-	// The scheduler is Mutable during:
+	// Mutable scheduler state occurs during:
 	// * starting up for the first time
 	// * growing (recovering) from 1 to N nodes
 	// * pruning dead nodes
 	// * exiting
 	Mutable State = iota
-	// The scheduler is Immutable during:
+	// Immutable scheduler state occurs during:
 	// * waiting for state to settle during initialization
 	// * disconnection from the Mesos master
 	// * performing a backup with the intention of seeding a new cluster
@@ -139,14 +139,14 @@ func NewEtcdScheduler(
 
 func (s *EtcdScheduler) Registered(
 	driver scheduler.SchedulerDriver,
-	frameworkId *mesos.FrameworkID,
+	frameworkID *mesos.FrameworkID,
 	masterInfo *mesos.MasterInfo,
 ) {
 	log.Infoln("Framework Registered with Master ", masterInfo)
 
 	if s.ZkConnect != "" {
 		err := rpc.PersistFrameworkID(
-			frameworkId,
+			frameworkID,
 			s.ZkServers,
 			s.ZkChroot,
 			s.ClusterName,
@@ -316,10 +316,10 @@ func (s *EtcdScheduler) StatusUpdate(
 
 func (s *EtcdScheduler) OfferRescinded(
 	driver scheduler.SchedulerDriver,
-	offerId *mesos.OfferID,
+	offerID *mesos.OfferID,
 ) {
 	log.Info("received OfferRescinded rpc")
-	s.offerCache.Rescind(offerId)
+	s.offerCache.Rescind(offerID)
 }
 
 func (s *EtcdScheduler) FrameworkMessage(
@@ -514,15 +514,13 @@ func (s *EtcdScheduler) SerialLauncher(driver scheduler.SchedulerDriver) {
 	}
 }
 
-// TODO(tyler) split this long function up!
-func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
-	log.Infoln("Attempting to launch a task.")
+func (s *EtcdScheduler) shouldLaunch() bool {
 	s.mut.RLock()
+	defer s.mut.RUnlock()
 
 	if s.state != Mutable {
 		log.Infoln("Scheduler is not mutable.  Not launching a task.")
-		s.mut.RUnlock()
-		return
+		return false
 	}
 
 	log.Infof(
@@ -532,61 +530,65 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	log.Infof("running: %+v", s.running)
 	if len(s.running) >= s.desiredInstanceCount {
 		log.Infoln("Already running enough tasks.")
-		s.mut.RUnlock()
-		return
+		return false
 	}
 
 	members, err := rpc.MemberList(s.running)
 	if err != nil {
 		log.Errorf("Failed to retrieve running member list, "+
 			"rescheduling launch attempt for later: %s", err)
-		s.PumpTheBrakes()
-		s.QueueLaunchAttempt()
-		s.mut.RUnlock()
-		return
+		return false
 	}
 	if len(members) == s.desiredInstanceCount {
 		log.Errorf("Cluster is already configured for desired number of nodes.  " +
 			"Must deconfigure any dead nodes first or we may risk livelock.")
-		s.mut.RUnlock()
-		return
+		return false
 	}
 	err = s.healthCheck(s.running)
 	if err != nil && len(s.running) != 0 {
-		log.Errorf("Failed health check, rescheduling launch attempt for later: %s", err)
-		s.PumpTheBrakes()
-		s.QueueLaunchAttempt()
-		s.mut.RUnlock()
+		log.Errorf("Failed health check, rescheduling "+
+			"launch attempt for later: %s", err)
+		return false
+	}
+
+	return true
+}
+
+// TODO(tyler) split this long function up!
+func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
+	if !s.shouldLaunch() {
+		log.Infoln("Skipping launch attempt for now.")
 		return
 	}
-	s.mut.RUnlock()
-	err = s.Prune()
+
+	err := s.Prune()
 	if err != nil {
 		log.Errorf("Failed to remove stale cluster members: %s", err)
 		return
 	}
 
+	log.Infoln("Attempting to launch a task.")
+
+	// validOffer filters out offers that are no longer
+	// desirable, even though they may have been when
+	// they were enqueued.
+	validOffer := func(offer *mesos.Offer) bool {
+		runningCopy := s.RunningCopy()
+		for _, etcdConfig := range runningCopy {
+			if etcdConfig.SlaveID == offer.SlaveId.GetValue() {
+				if s.SingleInstancePerSlave {
+					return false
+				}
+			}
+		}
+		return true
+	}
+
 	// Issue BlockingPop until we get back an offer we can use.
 	var offer *mesos.Offer
 	for {
-		innerOffer, err := func() (*mesos.Offer, error) {
-			offer := s.offerCache.BlockingPop()
-			s.mut.RLock()
-			defer s.mut.RUnlock()
-			for _, etcdConfig := range s.running {
-				if etcdConfig.SlaveID == offer.SlaveId.GetValue() {
-					log.Infoln("Already running an etcd instance on this slave.")
-					if s.SingleInstancePerSlave {
-						return nil, goerrors.New("Already running on slave.")
-					}
-					log.Infoln("Launching anyway due to -single-instance-per-slave " +
-						"argument of false.")
-				}
-			}
-			return offer, nil
-		}()
-		if err == nil {
-			offer = innerOffer
+		offer = s.offerCache.BlockingPop()
+		if validOffer(offer) {
 			break
 		}
 	}
@@ -636,14 +638,14 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	stringSerializedConfig := string(serializedConfig)
 	// TODO(tyler) set data to serialized conf, recompute the rest from our
 	// task's resources.
-	taskId := &mesos.TaskID{
+	taskID := &mesos.TaskID{
 		Value: &stringSerializedConfig,
 	}
 
 	executor := s.prepareExecutorInfo(instance, s.executorUris, etcdConfig)
 	task := &mesos.TaskInfo{
 		Name:     proto.String(name),
-		TaskId:   taskId,
+		TaskId:   taskID,
 		SlaveId:  offer.SlaveId,
 		Executor: executor,
 		Resources: []*mesos.Resource{

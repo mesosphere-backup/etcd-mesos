@@ -144,10 +144,9 @@ func MemberList(
 				err = errors.New("Remote node returned an empty etcd member list.")
 				continue
 			}
-			log.Infof("got member list: %+v", memberList)
 
 			for _, m := range memberList.Members {
-				nameToIdent[m.Name] = m.Id
+				nameToIdent[m.Name] = m.ID
 			}
 			return nameToIdent, nil
 		}

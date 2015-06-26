@@ -22,6 +22,7 @@ import (
 	"strconv"
 	gotesting "testing"
 
+	"github.com/coreos/etcd/etcdserver/etcdhttp/httptypes"
 	"github.com/gogo/protobuf/proto"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 	util "github.com/mesos/mesos-go/mesosutil"
@@ -140,23 +141,18 @@ func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 		testScheduler.offerCache.Push(offer)
 	}
 	memberList := config.ClusterMemberList{
-		Members: []struct {
-			Id         string   `json:"id"`
-			Name       string   `json:"name"`
-			PeerURLS   []string `json:"peerURLS"`
-			ClientURLS []string `json:"clientURLS"`
-		}{
-			{
-				Id:         "1",
+		Members: []httptypes.Member{
+			httptypes.Member{
+				ID:         "1",
 				Name:       "etcd-1",
-				PeerURLS:   nil,
-				ClientURLS: nil,
+				PeerURLs:   nil,
+				ClientURLs: nil,
 			},
-			{
-				Id:         "2",
+			httptypes.Member{
+				ID:         "2",
 				Name:       "etcd-2",
-				PeerURLS:   nil,
-				ClientURLS: nil,
+				PeerURLs:   nil,
+				ClientURLs: nil,
 			},
 		},
 	}

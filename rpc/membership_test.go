@@ -22,6 +22,7 @@ import (
 	"reflect"
 	gotesting "testing"
 
+	"github.com/coreos/etcd/etcdserver/etcdhttp/httptypes"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mesosphere/etcd-mesos/config"
@@ -33,29 +34,24 @@ func TestConfigureInstance(t *gotesting.T) {
 
 func TestMemberList(t *gotesting.T) {
 	memberList := config.ClusterMemberList{
-		Members: []struct {
-			Id         string   `json:"id"`
-			Name       string   `json:"name"`
-			PeerURLS   []string `json:"peerURLS"`
-			ClientURLS []string `json:"clientURLS"`
-		}{
-			{
-				Id:         "1",
+		Members: []httptypes.Member{
+			httptypes.Member{
+				ID:         "1",
 				Name:       "etcd-1",
-				PeerURLS:   nil,
-				ClientURLS: nil,
+				PeerURLs:   nil,
+				ClientURLs: nil,
 			},
-			{
-				Id:         "2",
+			httptypes.Member{
+				ID:         "2",
 				Name:       "etcd-2",
-				PeerURLS:   nil,
-				ClientURLS: nil,
+				PeerURLs:   nil,
+				ClientURLs: nil,
 			},
-			{
-				Id:         "3",
+			httptypes.Member{
+				ID:         "3",
 				Name:       "etcd-3",
-				PeerURLS:   nil,
-				ClientURLS: nil,
+				PeerURLs:   nil,
+				ClientURLs: nil,
 			},
 		},
 	}

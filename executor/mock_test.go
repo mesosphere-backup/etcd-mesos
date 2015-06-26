@@ -63,8 +63,8 @@ func (m *MockExecutorDriver) SendFrameworkMessage(msg string) (mesos.Status, err
 	return args.Get(0).(mesos.Status), args.Error(1)
 }
 
-func NewTestEtcdExecutor(cmd string) *T {
-	return &T{
+func NewTestEtcdExecutor(cmd string) *Executor {
+	return &Executor{
 		cancelSuicide: make(chan struct{}),
 		cmd:           cmd,
 	}

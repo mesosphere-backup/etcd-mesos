@@ -34,7 +34,7 @@ const (
 	defaultMesosSlavePingTimeout     = 15 * time.Second
 )
 
-type T struct {
+type Executor struct {
 	cancelSuicide chan struct{}
 	tasksLaunched int
 	cmd           string
@@ -44,14 +44,14 @@ type T struct {
 // New returns an an implementation of an etcd Mesos executor that runs the
 // given command when tasks are launched.
 func New(cmd string) executor.Executor {
-	return &T{cancelSuicide: make(chan struct{}), cmd: cmd, shutdown: func() { os.Exit(1) }}
+	return &Executor{cancelSuicide: make(chan struct{}), cmd: cmd, shutdown: func() { os.Exit(1) }}
 }
 
-func (e *T) Registered(_ executor.ExecutorDriver, _ *mesos.ExecutorInfo, _ *mesos.FrameworkInfo, si *mesos.SlaveInfo) {
+func (e *Executor) Registered(_ executor.ExecutorDriver, _ *mesos.ExecutorInfo, _ *mesos.FrameworkInfo, si *mesos.SlaveInfo) {
 	log.Infoln("Registered Executor on slave ", si.GetHostname())
 }
 
-func (e *T) Reregistered(_ executor.ExecutorDriver, si *mesos.SlaveInfo) {
+func (e *Executor) Reregistered(_ executor.ExecutorDriver, si *mesos.SlaveInfo) {
 	log.Infoln("Re-registered Executor on slave ", si.GetHostname())
 
 	// Cancel until none left, although more than once should not happen.
@@ -64,7 +64,7 @@ func (e *T) Reregistered(_ executor.ExecutorDriver, si *mesos.SlaveInfo) {
 	}
 }
 
-func (e *T) Disconnected(_ executor.ExecutorDriver) {
+func (e *Executor) Disconnected(_ executor.ExecutorDriver) {
 	log.Infoln("Executor disconnected.")
 
 	const suicideTimeout = ((defaultMesosMaxSlavePingTimeouts + 1) *
@@ -85,7 +85,7 @@ func (e *T) Disconnected(_ executor.ExecutorDriver) {
 	}()
 }
 
-func (e *T) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
+func (e *Executor) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
 	e.tasksLaunched++
 	log.Infof("Launching task #%d %q with command %q", ti.GetName(), ti.Command.GetValue())
 
@@ -136,18 +136,18 @@ func (e *T) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
 	}()
 }
 
-func (e *T) KillTask(_ executor.ExecutorDriver, t *mesos.TaskID) {
+func (e *Executor) KillTask(_ executor.ExecutorDriver, t *mesos.TaskID) {
 	log.Infof("KillTask: not implemented: %v", t)
 }
 
-func (e *T) FrameworkMessage(dv executor.ExecutorDriver, msg string) {
+func (e *Executor) FrameworkMessage(dv executor.ExecutorDriver, msg string) {
 	log.Infof("FrameworkMessage: %s", msg)
 }
 
-func (e *T) Shutdown(_ executor.ExecutorDriver) {
+func (e *Executor) Shutdown(_ executor.ExecutorDriver) {
 	log.Infoln("Shutting down the executor")
 }
 
-func (e *T) Error(_ executor.ExecutorDriver, err string) {
+func (e *Executor) Error(_ executor.ExecutorDriver, err string) {
 	log.Infof("Error: %s", err)
 }

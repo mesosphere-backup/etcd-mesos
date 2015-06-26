@@ -33,11 +33,11 @@ import (
 	log "github.com/golang/glog"
 )
 
-func HealthCheck(running map[string]*config.Etcd) error {
+func HealthCheck(running map[string]*config.Node) error {
 	// TODO(tyler) invariant: all nodes have same leader
 	// TODO(tyler) invariant: raft index increases
 	// TODO(tyler) retry with exponential backoff
-	//healthy, unhealthy = []config.Etcd{}, []config.Etcd{}
+	//healthy, unhealthy = []config.Node{}, []config.Node{}
 	var validEndpoint string
 	for _, args := range running {
 		url := fmt.Sprintf(

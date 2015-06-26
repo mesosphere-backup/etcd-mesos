@@ -44,20 +44,21 @@ import (
 )
 
 const (
-	cpusPerTask            = 1
-	memPerTask             = 256
-	diskPerTask            = 1024
-	portsPerTask           = 2
-	etcdInvocationTemplate = `./etcd --data-dir="etcd_data"
-		--name="{{.Name}}"
-		--initial-cluster-state="{{.Type}}"
-		--listen-peer-urls="http://{{.Host}}:{{.RpcPort}}"
-		--initial-advertise-peer-urls="http://{{.Host}}:{{.RpcPort}}"
-		--listen-client-urls="http://{{.Host}}:{{.ClientPort}}"
-		--advertise-client-urls="http://{{.Host}}:{{.ClientPort}}"
-		--initial-cluster="{{.Cluster}}"
-	`
+	cpusPerTask  = 1
+	memPerTask   = 256
+	diskPerTask  = 1024
+	portsPerTask = 2
 )
+
+var cmdTemplate = template.Must(template.New("etcd-cmd").Parse(
+	`./etcd --data-dir="etcd_data" --name="{{.Name}}" ` +
+		`--initial-cluster-state="{{.Type}}" ` +
+		`--listen-peer-urls="http://{{.Host}}:{{.RPCPort}}" ` +
+		`--initial-advertise-peer-urls="http://{{.Host}}:{{.RPCPort}}" ` +
+		`--listen-client-urls="http://{{.Host}}:{{.ClientPort}}" ` +
+		`--advertise-client-urls="http://{{.Host}}:{{.ClientPort}}" ` +
+		`--initial-cluster="{{.Cluster}}"`,
+))
 
 // State represents the mutability of the scheduler.
 type State int32
@@ -87,12 +88,12 @@ type EtcdScheduler struct {
 	ZkServers              []string
 	SingleInstancePerSlave bool
 	desiredInstanceCount   int
-	healthCheck            func(map[string]*config.Etcd) error
+	healthCheck            func(map[string]*config.Node) error
 	shutdown               func()
 	mut                    sync.RWMutex
 	state                  State
 	pending                map[string]struct{}
-	running                map[string]*config.Etcd
+	running                map[string]*config.Node
 	highestInstanceID      int64
 	executorUris           []*mesos.CommandInfo_URI
 	offerCache             *offercache.OfferCache
@@ -102,7 +103,7 @@ type EtcdScheduler struct {
 }
 
 type EtcdParams struct {
-	config.Etcd
+	config.Node
 	Cluster string
 }
 
@@ -120,7 +121,7 @@ func NewEtcdScheduler(
 ) *EtcdScheduler {
 	return &EtcdScheduler{
 		state:                Immutable,
-		running:              map[string]*config.Etcd{},
+		running:              map[string]*config.Node{},
 		pending:              map[string]struct{}{},
 		highestInstanceID:    time.Now().Unix(),
 		executorUris:         executorUris,
@@ -258,15 +259,14 @@ func (s *EtcdScheduler) StatusUpdate(
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
-	etcdConfig, err := config.Parse(status.GetTaskId().GetValue())
-	if err != nil {
-		log.Errorf("!!!! Could not deserialize taskid into EtcdConfig: %s", err)
+	node := config.Node{SlaveID: status.SlaveId.GetValue()}
+	if err := node.UnmarshalText([]byte(status.GetTaskId().GetValue())); err != nil {
+		log.Errorf("scheduler: failed to unmarshal config.Node from TaskId: %s", err)
 		return
 	}
-	etcdConfig.SlaveID = status.SlaveId.GetValue()
 
 	// If this task was pending, we now know it's running or dead.
-	delete(s.pending, etcdConfig.Name)
+	delete(s.pending, node.Name)
 
 	switch status.GetState() {
 	case mesos.TaskState_TASK_LOST,
@@ -278,21 +278,21 @@ func (s *EtcdScheduler) StatusUpdate(
 		// before adding a new one.  If we don't deconfigure first, we risk
 		// split brain.
 		s.PumpTheBrakes()
-		delete(s.running, etcdConfig.Name)
+		delete(s.running, node.Name)
 		go func() {
-			if err := rpc.RemoveInstance(s.running, etcdConfig.Name); err != nil {
+			if err := rpc.RemoveInstance(s.running, node.Name); err != nil {
 				log.Errorf("Failed to remove instance: %s", err)
 			}
 			s.QueueLaunchAttempt()
 		}()
 	case mesos.TaskState_TASK_RUNNING:
-		_, present := s.running[etcdConfig.Name]
+		_, present := s.running[node.Name]
 		if !present {
-			s.running[etcdConfig.Name] = etcdConfig
+			s.running[node.Name] = &node
 		}
 
 		// During reconcilliation, we may find nodes with higher ID's due to ntp drift
-		etcdIndexParts := strings.Split(etcdConfig.Name, "-")
+		etcdIndexParts := strings.Split(node.Name, "-")
 		if len(etcdIndexParts) != 2 {
 			log.Warning("Task has a Name that does not follow the form etcd-<index>")
 		} else {
@@ -362,10 +362,10 @@ func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 
 // ----------------------- helper functions ------------------------- //
 
-func (s *EtcdScheduler) RunningCopy() map[string]*config.Etcd {
+func (s *EtcdScheduler) RunningCopy() map[string]*config.Node {
 	s.mut.RLock()
 	defer s.mut.RUnlock()
-	runningCopy := map[string]*config.Etcd{}
+	runningCopy := map[string]*config.Node{}
 	for k, v := range s.running {
 		runningCopy[k] = v
 	}
@@ -375,7 +375,7 @@ func (s *EtcdScheduler) RunningCopy() map[string]*config.Etcd {
 func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
 	// Reset mutable state
 	s.mut.Lock()
-	s.running = map[string]*config.Etcd{}
+	s.running = map[string]*config.Node{}
 	s.mut.Unlock()
 
 	// Pump the brakes to allow some time for reconciliation.
@@ -619,30 +619,30 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	}
 
 	name := "etcd-" + strconv.FormatInt(s.highestInstanceID, 10)
-	instance := &config.Etcd{
+	node := &config.Node{
 		Name:       name,
 		Host:       *offer.Hostname,
-		RpcPort:    rpcPort,
+		RPCPort:    rpcPort,
 		ClientPort: clientPort,
 		Type:       clusterType,
 		SlaveID:    offer.GetSlaveId().GetValue(),
 	}
-	running := []*config.Etcd{instance}
+	running := []*config.Node{node}
 	for _, r := range s.running {
 		running = append(running, r)
 	}
-	etcdConfig := formatConfig(instance, running)
 
-	serializedConfig := config.String(instance)
-
-	stringSerializedConfig := string(serializedConfig)
-	// TODO(tyler) set data to serialized conf, recompute the rest from our
-	// task's resources.
-	taskID := &mesos.TaskID{
-		Value: &stringSerializedConfig,
+	cmd, err := command(running...)
+	if err != nil {
+		log.Error(err)
+		return
 	}
 
-	executor := s.prepareExecutorInfo(instance, s.executorUris, etcdConfig)
+	serializedConfig := node.String()
+
+	taskID := &mesos.TaskID{Value: &serializedConfig}
+
+	executor := s.newExecutorInfo(node, s.executorUris, cmd)
 	task := &mesos.TaskInfo{
 		Name:     proto.String(name),
 		TaskId:   taskID,
@@ -663,15 +663,15 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		task.GetName(),
 		offer.Id.GetValue(),
 	)
-	log.Infof("Launching etcd instance with command: %s", etcdConfig)
+	log.Infof("Launching etcd node with command: %s", cmd)
 
 	tasks := []*mesos.TaskInfo{task}
 	log.Infoln("Launching ", len(tasks), "tasks for offer", offer.Id.GetValue())
 	// TODO(tyler) move configuration to executor
-	go rpc.ConfigureInstance(s.running, instance)
+	go rpc.ConfigureInstance(s.running, node)
 
 	s.mut.Lock()
-	s.pending[instance.Name] = struct{}{}
+	s.pending[node.Name] = struct{}{}
 	s.mut.Unlock()
 
 	driver.LaunchTasks(
@@ -750,23 +750,22 @@ func ServeExecutorArtifact(path, address string, artifactPort int) *string {
 	return &hostURI
 }
 
-func (s *EtcdScheduler) prepareExecutorInfo(instance *config.Etcd,
-	executorUris []*mesos.CommandInfo_URI,
-	etcdExec string) *mesos.ExecutorInfo {
+func (s *EtcdScheduler) newExecutorInfo(
+	node *config.Node,
+	executorURIs []*mesos.CommandInfo_URI,
+	cmd string,
+) *mesos.ExecutorInfo {
 
-	_, executorBin := filepath.Split(s.ExecutorPath)
-	executorCommand := fmt.Sprintf("./%s -exec=\"%s\" -log_dir=./",
-		executorBin,
-		etcdExec)
+	_, bin := filepath.Split(s.ExecutorPath)
+	execmd := fmt.Sprintf("./%s -exec=\"%s\" -log_dir=./", bin, cmd)
 
-	// Create mesos scheduler driver.
 	return &mesos.ExecutorInfo{
-		ExecutorId: util.NewExecutorID(instance.Name),
+		ExecutorId: util.NewExecutorID(node.Name),
 		Name:       proto.String("etcd"),
 		Source:     proto.String("go_test"),
 		Command: &mesos.CommandInfo{
-			Value: proto.String(executorCommand),
-			Uris:  executorUris,
+			Value: proto.String(execmd),
+			Uris:  executorURIs,
 		},
 		Resources: []*mesos.Resource{
 			util.NewScalarResource("cpus", 0.1),
@@ -775,25 +774,18 @@ func (s *EtcdScheduler) prepareExecutorInfo(instance *config.Etcd,
 	}
 }
 
-func formatConfig(
-	newServer *config.Etcd,
-	existingServers []*config.Etcd,
-) string {
-	formatted := make([]string, 0, len(existingServers))
-	for _, e := range existingServers {
-		formatted = append(formatted,
-			fmt.Sprintf("%s=http://%s:%d", e.Name, e.Host, e.RpcPort))
+// command returns an etcd command templated with the given Nodes.
+func command(nodes ...*config.Node) (string, error) {
+	var cluster bytes.Buffer
+	for _, n := range nodes[1:] {
+		fmt.Fprintf(&cluster, "%s=http://%s:%d,", n.Name, n.Host, n.RPCPort)
 	}
+	cluster.Truncate(cluster.Len() - 1)
 
-	params := EtcdParams{Etcd: *newServer}
-	params.Cluster = strings.Join(formatted, ",")
-
-	var config bytes.Buffer
-	t := template.Must(template.New("name").Parse(etcdInvocationTemplate))
-	err := t.Execute(&config, params)
-	if err != nil {
-		log.Error(err)
-	}
-
-	return strings.Replace(config.String(), "\n", " ", -1)
+	var out bytes.Buffer
+	err := cmdTemplate.Execute(&out, EtcdParams{
+		Node:    *nodes[0],
+		Cluster: cluster.String(),
+	})
+	return out.String(), err
 }

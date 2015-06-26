@@ -25,44 +25,41 @@ import (
 	"strings"
 )
 
-type Etcd struct {
+// Node represents an etcd node's configuration.
+type Node struct {
 	Name       string `json:"name"`
 	Task       string `json:"task"`
 	Host       string `json:"host"`
-	RpcPort    uint64 `json:"rpcPort"`
+	RPCPort    uint64 `json:"rpcPort"`
 	ClientPort uint64 `json:"clientPort"`
 	Type       string `json:"type"`
 	SlaveID    string `json:"slaveID"`
 }
 
-func Parse(input string) (*Etcd, error) {
-	splits := strings.Split(input, " ")
-	if len(splits) != 4 {
-		return nil, errors.New("Invalid format for serialized Etcd.")
-	}
-	rpcPort, err := strconv.ParseUint(splits[2], 10, 64)
-	if err != nil {
-		return nil, err
-	}
-	clientPort, err := strconv.ParseUint(splits[3], 10, 64)
-	if err != nil {
-		return nil, err
-	}
+// ErrUnmarshal is returned whenever config unmarshalling
+var ErrUnmarshal = errors.New("config: unmarshaling failed")
 
-	return &Etcd{
-		Name:       splits[0],
-		Host:       splits[1],
-		RpcPort:    rpcPort,
-		ClientPort: clientPort,
-	}, nil
+// UnmarshalText implements the encoding.TextUnmarshaler interface.
+func (n *Node) UnmarshalText(text []byte) (err error) {
+	fs := strings.Fields(string(text))
+	if len(fs) != 4 {
+		return ErrUnmarshal
+	}
+	n.Name, n.Host = fs[0], fs[1]
+
+	if n.RPCPort, err = strconv.ParseUint(fs[2], 10, 64); err != nil {
+		return ErrUnmarshal
+	} else if n.ClientPort, err = strconv.ParseUint(fs[3], 10, 64); err != nil {
+		return ErrUnmarshal
+	}
+	return nil
 }
 
-func String(input *Etcd) string {
-	return fmt.Sprintf(
-		"%s %s %d %d",
-		input.Name,
-		input.Host,
-		input.RpcPort,
-		input.ClientPort,
-	)
+// MarshalText implements the encoding.TextMarshaler interface.
+func (n Node) MarshalText() ([]byte, error) { return []byte(n.String()), nil }
+
+// String implements the fmt.Stringer interface, returning a space separated
+// string representation of a Node.
+func (n Node) String() string {
+	return fmt.Sprintf("%s %s %d %d", n.Name, n.Host, n.RPCPort, n.ClientPort)
 }

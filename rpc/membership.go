@@ -35,8 +35,8 @@ import (
 )
 
 func ConfigureInstance(
-	running map[string]*config.Etcd,
-	newInstance *config.Etcd,
+	running map[string]*config.Node,
+	newInstance *config.Node,
 ) error {
 	if len(running) == 0 {
 		log.Info("No running members to configure.  Skipping configuration.")
@@ -60,7 +60,7 @@ func ConfigureInstance(
 			data := fmt.Sprintf(
 				`{"peerURLs": ["http://%s:%d"]}`,
 				newInstance.Host,
-				newInstance.RpcPort)
+				newInstance.RPCPort)
 
 			req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(data)))
 			req.Header.Set("Content-Type", "application/json")
@@ -101,7 +101,7 @@ func ConfigureInstance(
 }
 
 func MemberList(
-	running map[string]*config.Etcd,
+	running map[string]*config.Node,
 ) (nameToIdent map[string]string, err error) {
 	nameToIdent = map[string]string{}
 
@@ -158,7 +158,7 @@ func MemberList(
 	return nameToIdent, err
 }
 
-func RemoveInstance(running map[string]*config.Etcd, task string) error {
+func RemoveInstance(running map[string]*config.Node, task string) error {
 	log.Infof("Attempting to remove task %s from "+
 		"the etcd cluster configuration.", task)
 	members, err := MemberList(running)

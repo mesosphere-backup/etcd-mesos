@@ -19,26 +19,51 @@
 package config
 
 import (
+	"bytes"
+	"reflect"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
-func TestEtcdConfig(t *testing.T) {
-	etcd := &Etcd{
-		Name:       "test",
-		Host:       "test",
-		RpcPort:    1,
-		ClientPort: 1,
+func TestNode_UnmarshalText(t *testing.T) {
+	for i, tt := range []struct {
+		text string
+		want Node
+		err  error
+	}{
+		{"", Node{}, ErrUnmarshal},
+		{" ", Node{}, ErrUnmarshal},
+		{"a", Node{}, ErrUnmarshal},
+		{"a b", Node{}, ErrUnmarshal},
+		{"a b c", Node{}, ErrUnmarshal},
+		{"a b 1 2 3", Node{}, ErrUnmarshal},
+		{"a b c d", Node{Name: "a", Host: "b"}, ErrUnmarshal},
+		{"a b c 1", Node{Name: "a", Host: "b"}, ErrUnmarshal},
+		{"a b 1 d", Node{Name: "a", Host: "b", RPCPort: 1}, ErrUnmarshal},
+		{"a b 1 2", Node{Name: "a", Host: "b", RPCPort: 1, ClientPort: 2}, nil},
+	} {
+		var n Node
+		if err := n.UnmarshalText([]byte(tt.text)); !reflect.DeepEqual(err, tt.err) {
+			t.Errorf("test #%d: got err: %v, want: %v", i, err, tt.err)
+		} else if got := n; got != tt.want {
+			t.Errorf("test #%d: got: %v, want: %v", i, got, tt.want)
+		}
 	}
+}
 
-	parsedEtcd, _ := Parse(String(etcd))
-	assert.Equal(t, parsedEtcd, etcd)
-
-	_, err := Parse("clearly invalid")
-	assert.NotNil(t, err, "Invalid strings should not deserialize.")
-	_, err = Parse("etcd-1 somehost a b")
-	assert.NotNil(t, err, "Invalid strings should not deserialize.")
-	_, err = Parse("etcd-1 somehost 1 b")
-	assert.NotNil(t, err, "Invalid strings should not deserialize.")
+func TestNode_MarshalText(t *testing.T) {
+	for i, tt := range []struct {
+		Node
+		want string
+	}{
+		{Node{}, "  0 0"},
+		{Node{Name: "a"}, "a  0 0"},
+		{Node{Host: "b"}, " b 0 0"},
+		{Node{RPCPort: 1}, "  1 0"},
+		{Node{ClientPort: 1}, "  0 1"},
+		{Node{Name: "a", Host: "b", RPCPort: 1, ClientPort: 2}, "a b 1 2"},
+	} {
+		if got, _ := tt.MarshalText(); !bytes.Equal(got, []byte(tt.want)) {
+			t.Errorf("test #%d: got : %s, want: %s", i, got, tt.want)
+		}
+	}
 }

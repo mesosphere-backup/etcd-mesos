@@ -68,7 +68,7 @@ func TestMemberList(t *gotesting.T) {
 	if err != nil {
 		t.Fatalf("Failed to create test etcd server: %s", err)
 	}
-	running := map[string]*config.Etcd{
+	running := map[string]*config.Node{
 		"1": {
 			Name:       "etcd-1",
 			Host:       "localhost",

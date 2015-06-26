@@ -52,7 +52,7 @@ func NewOffer(id string) *mesos.Offer {
 func TestStartup(t *gotesting.T) {
 	mockdriver := &MockSchedulerDriver{}
 	testScheduler := NewEtcdScheduler(1, 0, []*mesos.CommandInfo_URI{})
-	testScheduler.running = map[string]*config.Etcd{
+	testScheduler.running = map[string]*config.Node{
 		"etcd-1": nil,
 		"etcd-2": nil,
 	}
@@ -128,7 +128,7 @@ func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 		scheduler:       testScheduler,
 	}
 	testScheduler.state = Mutable
-	testScheduler.healthCheck = func(map[string]*config.Etcd) error {
+	testScheduler.healthCheck = func(map[string]*config.Node) error {
 		return nil
 	}
 

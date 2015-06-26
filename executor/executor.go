@@ -34,55 +34,42 @@ const (
 	defaultMesosSlavePingTimeout     = 15 * time.Second
 )
 
-type etcdExecutor struct {
+type T struct {
 	cancelSuicide chan struct{}
 	tasksLaunched int
 	cmd           string
 	shutdown      func()
 }
 
-func New(cmd string) *etcdExecutor {
-	return &etcdExecutor{
-		cancelSuicide: make(chan struct{}),
-		cmd:           cmd,
-		shutdown:      func() { os.Exit(1) },
-	}
+// New returns an an implementation of an etcd Mesos executor that runs the
+// given command when tasks are launched.
+func New(cmd string) executor.Executor {
+	return &T{cancelSuicide: make(chan struct{}), cmd: cmd, shutdown: func() { os.Exit(1) }}
 }
 
-func (e *etcdExecutor) Registered(
-	driver executor.ExecutorDriver,
-	execInfo *mesos.ExecutorInfo,
-	fwinfo *mesos.FrameworkInfo,
-	slaveInfo *mesos.SlaveInfo,
-) {
-	log.Infoln("Registered Executor on slave ", slaveInfo.GetHostname())
+func (e *T) Registered(_ executor.ExecutorDriver, _ *mesos.ExecutorInfo, _ *mesos.FrameworkInfo, si *mesos.SlaveInfo) {
+	log.Infoln("Registered Executor on slave ", si.GetHostname())
 }
 
-func (e *etcdExecutor) Reregistered(
-	driver executor.ExecutorDriver,
-	slaveInfo *mesos.SlaveInfo,
-) {
-	log.Infoln("Re-registered Executor on slave ", slaveInfo.GetHostname())
+func (e *T) Reregistered(_ executor.ExecutorDriver, si *mesos.SlaveInfo) {
+	log.Infoln("Re-registered Executor on slave ", si.GetHostname())
 
-	// Coax any jumpers back from the cliff.
-	cancelOne := func() bool {
+	// Cancel until none left, although more than once should not happen.
+	for {
 		select {
 		case e.cancelSuicide <- struct{}{}:
-			return true
 		default:
-			return false
+			return
 		}
-	}
-	// Cancel until none left, although more than once should not happen.
-	for cancelOne() {
 	}
 }
 
-func (e *etcdExecutor) Disconnected(executor.ExecutorDriver) {
+func (e *T) Disconnected(_ executor.ExecutorDriver) {
 	log.Infoln("Executor disconnected.")
 
 	const suicideTimeout = ((defaultMesosMaxSlavePingTimeouts + 1) *
 		defaultMesosSlavePingTimeout)
+
 	go func() {
 		select {
 		case <-e.cancelSuicide:
@@ -98,19 +85,9 @@ func (e *etcdExecutor) Disconnected(executor.ExecutorDriver) {
 	}()
 }
 
-func (e *etcdExecutor) LaunchTask(
-	driver executor.ExecutorDriver,
-	taskInfo *mesos.TaskInfo,
-) {
-	log.Infoln(
-		"Launching task",
-		taskInfo.GetName(),
-		"with command",
-		taskInfo.Command.GetValue(),
-	)
-
+func (e *T) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
 	e.tasksLaunched++
-	log.Infoln("Total tasks launched ", e.tasksLaunched)
+	log.Infof("Launching task #%d %q with command %q", ti.GetName(), ti.Command.GetValue())
 
 	go func() {
 		log.Infoln("calling command: ", e.cmd)
@@ -122,10 +99,10 @@ func (e *etcdExecutor) LaunchTask(
 		command.Start()
 
 		runStatus := &mesos.TaskStatus{
-			TaskId: taskInfo.GetTaskId(),
+			TaskId: ti.GetTaskId(),
 			State:  mesos.TaskState_TASK_RUNNING.Enum(),
 		}
-		_, err := driver.SendStatusUpdate(runStatus)
+		_, err := dv.SendStatusUpdate(runStatus)
 		if err != nil {
 			log.Infoln("Got error sending status update: ", err)
 		}
@@ -143,35 +120,34 @@ func (e *etcdExecutor) LaunchTask(
 		// TODO add monitoring
 
 		// finish task
-		log.Infoln("Finishing task", taskInfo.GetName())
+		log.Infoln("Finishing task", ti.GetName())
 		finStatus := &mesos.TaskStatus{
-			TaskId: taskInfo.GetTaskId(),
+			TaskId: ti.GetTaskId(),
 			State:  mesos.TaskState_TASK_FINISHED.Enum(),
 		}
-		_, err = driver.SendStatusUpdate(finStatus)
+		_, err = dv.SendStatusUpdate(finStatus)
 		if err != nil {
 			log.Infoln("Aborting after error ", err)
-			driver.Abort()
+			dv.Abort()
+			return
 		}
-		log.Infoln("Task finished", taskInfo.GetName())
+
+		log.Infoln("Task finished", ti.GetName())
 	}()
 }
 
-func (e *etcdExecutor) KillTask(executor.ExecutorDriver, *mesos.TaskID) {
-	log.Infoln("Kill task")
+func (e *T) KillTask(_ executor.ExecutorDriver, t *mesos.TaskID) {
+	log.Infof("KillTask: not implemented: %v", t)
 }
 
-func (e *etcdExecutor) FrameworkMessage(
-	driver executor.ExecutorDriver,
-	msg string,
-) {
-	log.Infoln("Got framework message: ", msg)
+func (e *T) FrameworkMessage(dv executor.ExecutorDriver, msg string) {
+	log.Infof("FrameworkMessage: %s", msg)
 }
 
-func (e *etcdExecutor) Shutdown(executor.ExecutorDriver) {
+func (e *T) Shutdown(_ executor.ExecutorDriver) {
 	log.Infoln("Shutting down the executor")
 }
 
-func (e *etcdExecutor) Error(driver executor.ExecutorDriver, err string) {
-	log.Infoln("Got error message:", err)
+func (e *T) Error(_ executor.ExecutorDriver, err string) {
+	log.Infof("Error: %s", err)
 }

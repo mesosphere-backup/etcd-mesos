@@ -63,13 +63,6 @@ func (m *MockExecutorDriver) SendFrameworkMessage(msg string) (mesos.Status, err
 	return args.Get(0).(mesos.Status), args.Error(1)
 }
 
-func NewTestEtcdExecutor(cmd string) *Executor {
-	return &Executor{
-		cancelSuicide: make(chan struct{}),
-		cmd:           cmd,
-	}
-}
-
 func status(args mock.Arguments, at int) (val mesos.Status) {
 	if x := args.Get(at); x != nil {
 		val = x.(mesos.Status)

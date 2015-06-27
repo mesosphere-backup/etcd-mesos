@@ -19,12 +19,11 @@
 package config
 
 import (
-	"bytes"
 	"reflect"
 	"testing"
 )
 
-func TestNode_UnmarshalText(t *testing.T) {
+func TestNode_Parse(t *testing.T) {
 	for i, tt := range []struct {
 		text string
 		want Node
@@ -41,16 +40,17 @@ func TestNode_UnmarshalText(t *testing.T) {
 		{"a b 1 d", Node{Name: "a", Host: "b", RPCPort: 1}, ErrUnmarshal},
 		{"a b 1 2", Node{Name: "a", Host: "b", RPCPort: 1, ClientPort: 2}, nil},
 	} {
-		var n Node
-		if err := n.UnmarshalText([]byte(tt.text)); !reflect.DeepEqual(err, tt.err) {
+		var n *Node
+		var err error
+		if n, err = Parse([]byte(tt.text)); !reflect.DeepEqual(err, tt.err) {
 			t.Errorf("test #%d: got err: %v, want: %v", i, err, tt.err)
-		} else if got := n; got != tt.want {
+		} else if got := *n; got != tt.want {
 			t.Errorf("test #%d: got: %v, want: %v", i, got, tt.want)
 		}
 	}
 }
 
-func TestNode_MarshalText(t *testing.T) {
+func TestNode_String(t *testing.T) {
 	for i, tt := range []struct {
 		Node
 		want string
@@ -62,7 +62,7 @@ func TestNode_MarshalText(t *testing.T) {
 		{Node{ClientPort: 1}, "  0 1"},
 		{Node{Name: "a", Host: "b", RPCPort: 1, ClientPort: 2}, "a b 1 2"},
 	} {
-		if got, _ := tt.MarshalText(); !bytes.Equal(got, []byte(tt.want)) {
+		if got := tt.String(); !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("test #%d: got : %s, want: %s", i, got, tt.want)
 		}
 	}

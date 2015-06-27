@@ -1,0 +1,33 @@
+tries to use more memory + cpus (1.1, 288) than available (1, 256)
+I0615 19:39:51.983000  9813 master.cpp:3336] Sending status update TASK_ERROR (UUID: 166e5ad8-947a-4acc-ad76-0820eca3bbc8) for task {"name":"etcd-1434421077","task":"","host":"localhost.localdomain","rpcPort":31000,"clientPort":31001,"type":"existing","slaveID":"20150615-152726-16777343-5050-9809-S6"} of framework 20150611-164414-16777343-5050-10806-0002 'Task uses more resources cpus(*):1.1; mem(*):288; disk(*):1024; ports(*):[31000-31001] than available cpus(*):1; mem(*):256; disk(*):1024; ports(*):[31000-31001]'
+
+does not always clear running instances, leading to it rejecting offers when it needs to heal
+  fixed?
+
+does not retrieve persisted framework id when clusterName = t3
+  fixed?
+
+does not deconfigure node before trying to add a new one, livelocking the cluster
+  cause: was trying to deconfigure a nonexistent node id
+  fixed
+
+when fw dies, then slave dies, then fw fails over, it will launch before removing the slave that died while the fw was down
+  cause: fw did not verify that defunct nodes are purged before launching
+  fixed
+
+executors stay alive forever when master fails?
+
+fw does not re-register after master fails and then restarts?
+
+when all tasks are killed, scheduler blocks indefinitely while trying to deconfigure them
+  should: verify that all etcd instances are unavailable, initiate HARD RESET (to be called by register and reregister as well)
+
+executors in staging state for a long time (don't send any updates) will just stay alive as zombies forever, consuming offers
+
+with chillfactor of 1, it's possible to spawn more than 1 instance per slave
+  should: check not only running, but also pending before launch
+
+json serialization was overriden
+  fixed
+
+logging not working on executor

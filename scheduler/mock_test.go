@@ -82,6 +82,7 @@ func (m *MockSchedulerDriver) LaunchTasks(offerIds []*mesos.OfferID, ti []*mesos
 				taskInfo.TaskId,
 				mesos.TaskState_TASK_RUNNING,
 			)
+			// TODO(tyler) use actual executor here to launch a test instance, so we can catch etcd config errors
 			m.scheduler.StatusUpdate(m, status)
 		}
 	}

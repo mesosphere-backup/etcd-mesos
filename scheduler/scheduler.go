@@ -181,20 +181,16 @@ func (s *EtcdScheduler) ResourceOffers(
 			totalPorts += (*pr.End + 1) - *pr.Begin
 		}
 
-		if log.V(2) {
-			log.Infoln("Received Offer <", offer.Id.GetValue(),
-				"> with cpus=", resources.cpus,
-				" mem=", resources.mems,
-				" ports=", totalPorts,
-				" disk=", resources.disk,
-				" from slave ", *offer.SlaveId.Value)
-		}
+		log.V(2).Infoln("Received Offer <", offer.Id.GetValue(),
+			"> with cpus=", resources.cpus,
+			" mem=", resources.mems,
+			" ports=", totalPorts,
+			" disk=", resources.disk,
+			" from slave ", *offer.SlaveId.Value)
 
 		s.mut.RLock()
 		if s.state == Immutable {
-			if log.V(2) {
-				log.Info("Scheduler is Immutable.  Declining received offer.")
-			}
+			log.V(2).Info("Scheduler is Immutable.  Declining received offer.")
 			s.decline(driver, offer)
 			s.mut.RUnlock()
 			continue
@@ -209,17 +205,13 @@ func (s *EtcdScheduler) ResourceOffers(
 			}
 		}
 		if alreadyUsingSlave {
-			if log.V(2) {
-				log.Infoln("Already using this slave for etcd instance.")
-			}
+			log.V(2).Infoln("Already using this slave for etcd instance.")
 			if s.singleInstancePerSlave {
 				log.V(2).Infoln("Skipping offer.")
 				s.decline(driver, offer)
 				continue
 			}
-			if log.V(2) {
-				log.Infoln("-single-instance-per-slave is false, continuing.")
-			}
+			log.V(2).Infoln("-single-instance-per-slave is false, continuing.")
 		}
 
 		if resources.cpus < cpusPerTask {
@@ -386,9 +378,7 @@ func (s *EtcdScheduler) decline(
 	driver scheduler.SchedulerDriver,
 	offer *mesos.Offer,
 ) {
-	if log.V(2) {
-		log.Infof("Declining offer %s.", offer.Id.GetValue())
-	}
+	log.V(2).Infof("Declining offer %s.", offer.Id.GetValue())
 	driver.DeclineOffer(
 		offer.Id,
 		&mesos.Filters{

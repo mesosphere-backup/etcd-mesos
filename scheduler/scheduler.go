@@ -243,7 +243,7 @@ func (s *EtcdScheduler) StatusUpdate(
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
-	node, err := config.Parse([]byte(status.GetTaskId().GetValue()))
+	node, err := config.Parse(status.GetTaskId().GetValue())
 	if err != nil {
 		log.Errorf("scheduler: failed to unmarshal config.Node from TaskId: %s", err)
 		return

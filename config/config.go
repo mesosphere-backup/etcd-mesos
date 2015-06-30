@@ -40,19 +40,20 @@ type Node struct {
 var ErrUnmarshal = errors.New("config: unmarshaling failed")
 
 // Parse attempts to deserialize a config.Node from a byte array.
-func Parse(text []byte) (n *Node, err error) {
-	n = &Node{}
+func Parse(text string) (*Node, error) {
 	fs := strings.Fields(string(text))
 	if len(fs) != 4 {
-		return n, ErrUnmarshal
+		return nil, ErrUnmarshal
 	}
-	n.Name, n.Host = fs[0], fs[1]
+	n := &Node{Name: fs[0], Host: fs[1]}
 
+	var err error
 	if n.RPCPort, err = strconv.ParseUint(fs[2], 10, 64); err != nil {
-		return n, ErrUnmarshal
+		return nil, ErrUnmarshal
 	} else if n.ClientPort, err = strconv.ParseUint(fs[3], 10, 64); err != nil {
-		return n, ErrUnmarshal
+		return nil, ErrUnmarshal
 	}
+
 	return n, nil
 }
 

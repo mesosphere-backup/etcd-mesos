@@ -26,25 +26,23 @@ import (
 func TestNode_Parse(t *testing.T) {
 	for i, tt := range []struct {
 		text string
-		want Node
+		want *Node
 		err  error
 	}{
-		{"", Node{}, ErrUnmarshal},
-		{" ", Node{}, ErrUnmarshal},
-		{"a", Node{}, ErrUnmarshal},
-		{"a b", Node{}, ErrUnmarshal},
-		{"a b c", Node{}, ErrUnmarshal},
-		{"a b 1 2 3", Node{}, ErrUnmarshal},
-		{"a b c d", Node{Name: "a", Host: "b"}, ErrUnmarshal},
-		{"a b c 1", Node{Name: "a", Host: "b"}, ErrUnmarshal},
-		{"a b 1 d", Node{Name: "a", Host: "b", RPCPort: 1}, ErrUnmarshal},
-		{"a b 1 2", Node{Name: "a", Host: "b", RPCPort: 1, ClientPort: 2}, nil},
+		{"", nil, ErrUnmarshal},
+		{" ", nil, ErrUnmarshal},
+		{"a", nil, ErrUnmarshal},
+		{"a b", nil, ErrUnmarshal},
+		{"a b c", nil, ErrUnmarshal},
+		{"a b 1 2 3", nil, ErrUnmarshal},
+		{"a b c d", nil, ErrUnmarshal},
+		{"a b c 1", nil, ErrUnmarshal},
+		{"a b 1 d", nil, ErrUnmarshal},
+		{"a b 1 2", &Node{Name: "a", Host: "b", RPCPort: 1, ClientPort: 2}, nil},
 	} {
-		var n *Node
-		var err error
-		if n, err = Parse([]byte(tt.text)); !reflect.DeepEqual(err, tt.err) {
+		if n, err := Parse(tt.text); !reflect.DeepEqual(err, tt.err) {
 			t.Errorf("test #%d: got err: %v, want: %v", i, err, tt.err)
-		} else if got := *n; got != tt.want {
+		} else if got := n; !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("test #%d: got: %v, want: %v", i, got, tt.want)
 		}
 	}

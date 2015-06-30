@@ -416,14 +416,12 @@ func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
 		if err != nil {
 			log.Errorf("Error while calling ReconcileTasks: %s", err)
 		} else {
-			go func() {
-				// We want to allow some time for reconciled updates to arrive.
-				time.Sleep(2 * s.chillFactor * time.Second)
-				s.mut.Lock()
-				log.Info("Scheduler transitioning to Mutable state.")
-				s.state = Mutable
-				s.mut.Unlock()
-			}()
+			// We want to allow some time for reconciled updates to arrive.
+			time.Sleep(2 * s.chillFactor * time.Second)
+			s.mut.Lock()
+			log.Info("Scheduler transitioning to Mutable state.")
+			s.state = Mutable
+			s.mut.Unlock()
 			return
 		}
 		time.Sleep(time.Duration(backoff) * time.Second)
@@ -569,6 +567,8 @@ func (s *EtcdScheduler) shouldLaunch() bool {
 		return false
 	}
 	if len(members) == s.desiredInstanceCount {
+		// TODO(tyler) verify that the mismatched nodes are actually dead,
+		// and attempt to reconcile if not.
 		log.Errorf("Cluster is already configured for desired number of nodes.  " +
 			"Must deconfigure any dead nodes first or we may risk livelock.")
 		return false

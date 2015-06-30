@@ -26,15 +26,14 @@ install:
 	go install ./cmd/...
 
 cover:
-	go test -v -race ./scheduler/... -coverprofile=em-coverage.out; go tool cover -func=em-coverage.out; rm em-coverage.out
-	go test -v -race ./executor/... -coverprofile=em-coverage.out; go tool cover -func=em-coverage.out; rm em-coverage.out
-	go test -v -race ./rpc/... -coverprofile=em-coverage.out; go tool cover -func=em-coverage.out; rm em-coverage.out
-	go test -v -race ./offercache/... -coverprofile=em-coverage.out; go tool cover -func=em-coverage.out; rm em-coverage.out
-	go test -v -race ./config/... -coverprofile=em-coverage.out; go tool cover -func=em-coverage.out; rm em-coverage.out
+	for i in `dirname **/*_test.go | grep -v "vendor" | sort | uniq`; do \
+		echo $$i; \
+		go test -v -race ./$$i/... -coverprofile=em-coverage.out; \
+		go tool cover -func=em-coverage.out; rm em-coverage.out; \
+	done
 
 test:
-	go test -race ./scheduler/...
-	go test -race ./executor/...
-	go test -race ./rpc/...
-	go test -race ./offercache/...
-	go test -race ./config/...
+	for i in `dirname **/*_test.go | grep -v "vendor" | sort | uniq`; do \
+		echo $$i; \
+		go test -race ./$$i/... ;\
+	done

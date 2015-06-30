@@ -163,6 +163,7 @@ func (s *EtcdScheduler) Reregistered(
 }
 
 func (s *EtcdScheduler) Disconnected(scheduler.SchedulerDriver) {
+	log.Error("Mesos master disconnected.")
 	s.mut.Lock()
 	s.state = Immutable
 	s.mut.Unlock()
@@ -243,8 +244,7 @@ func (s *EtcdScheduler) ResourceOffers(
 			resources.disk >= diskPerTask &&
 			s.offerCache.Push(offer) {
 
-			// golang for-loop variable reuse semantics
-			// necessitates creating a copy here.
+			// golang for-loop variable reuse necessitates a copy here.
 			offerCpy := *offer
 			go func() {
 				time.Sleep(s.chillFactor / 2 * time.Second)
@@ -299,7 +299,7 @@ func (s *EtcdScheduler) StatusUpdate(
 		s.PumpTheBrakes()
 		delete(s.running, node.Name)
 		go func() {
-			if err := rpc.RemoveInstance(s.running, node.Name); err != nil {
+			if err := rpc.RemoveInstance(s.RunningCopy(), node.Name); err != nil {
 				log.Errorf("Failed to remove instance: %s", err)
 			}
 			s.QueueLaunchAttempt()
@@ -392,7 +392,7 @@ func (s *EtcdScheduler) decline(
 	driver.DeclineOffer(
 		offer.Id,
 		&mesos.Filters{
-			RefuseSeconds: proto.Float64(float64(s.chillFactor / time.Second)),
+			RefuseSeconds: proto.Float64(float64(5 * s.chillFactor)),
 		},
 	)
 }
@@ -427,6 +427,7 @@ func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
 			log.Errorf("Error while calling ReconcileTasks: %s", err)
 		} else {
 			go func() {
+				// We want to allow some time for reconciled updates to arrive.
 				time.Sleep(2 * s.chillFactor * time.Second)
 				s.mut.Lock()
 				log.Info("Scheduler transitioning to Mutable state.")

@@ -114,7 +114,7 @@ func NewEtcdScheduler(
 		desiredInstanceCount: desiredInstanceCount,
 		launchChan:           make(chan struct{}, 2048),
 		pauseChan:            make(chan struct{}, 2048),
-		offerCache:           offercache.NewOfferCache(desiredInstanceCount),
+		offerCache:           offercache.New(desiredInstanceCount),
 		healthCheck:          rpc.HealthCheck,
 		shutdown:             func() { os.Exit(1) },
 	}

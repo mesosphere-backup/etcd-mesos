@@ -32,10 +32,10 @@ type OfferCache struct {
 	maxOffers  int
 }
 
-func NewOfferCache(maxOffers int) *OfferCache {
+func New(maxOffers int) *OfferCache {
 	return &OfferCache{
 		offerSet:   map[string]*mesos.Offer{},
-		offerQueue: make(chan *mesos.Offer, maxOffers+2048),
+		offerQueue: make(chan *mesos.Offer, maxOffers),
 		maxOffers:  maxOffers,
 	}
 }
@@ -43,7 +43,7 @@ func NewOfferCache(maxOffers int) *OfferCache {
 func (oc *OfferCache) Push(newOffer *mesos.Offer) bool {
 	oc.mut.Lock()
 	defer oc.mut.Unlock()
-	if len(oc.offerSet) < oc.maxOffers+1 {
+	if len(oc.offerSet) < oc.maxOffers {
 		// Reject offers from existing slaves.
 		if _, exists := oc.offerSet[newOffer.SlaveId.GetValue()]; exists {
 			log.Info("Offer already exists for slave ", newOffer.SlaveId.GetValue())
@@ -77,11 +77,12 @@ func (oc *OfferCache) BlockingPop() *mesos.Offer {
 	for {
 		offer := <-oc.offerQueue
 		oc.mut.Lock()
-		defer oc.mut.Unlock()
 		if _, ok := oc.offerSet[offer.GetId().GetValue()]; ok {
 			delete(oc.offerSet, offer.GetId().GetValue())
+			oc.mut.Unlock()
 			return offer
 		}
+		oc.mut.Unlock()
 	}
 }
 

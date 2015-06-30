@@ -35,19 +35,19 @@ func TestConfigureInstance(t *gotesting.T) {
 func TestMemberList(t *gotesting.T) {
 	memberList := config.ClusterMemberList{
 		Members: []httptypes.Member{
-			httptypes.Member{
+			{
 				ID:         "1",
 				Name:       "etcd-1",
 				PeerURLs:   nil,
 				ClientURLs: nil,
 			},
-			httptypes.Member{
+			{
 				ID:         "2",
 				Name:       "etcd-2",
 				PeerURLs:   nil,
 				ClientURLs: nil,
 			},
-			httptypes.Member{
+			{
 				ID:         "3",
 				Name:       "etcd-3",
 				PeerURLs:   nil,

@@ -142,13 +142,13 @@ func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 	}
 	memberList := config.ClusterMemberList{
 		Members: []httptypes.Member{
-			httptypes.Member{
+			{
 				ID:         "1",
 				Name:       "etcd-1",
 				PeerURLs:   nil,
 				ClientURLs: nil,
 			},
-			httptypes.Member{
+			{
 				ID:         "2",
 				Name:       "etcd-2",
 				PeerURLs:   nil,

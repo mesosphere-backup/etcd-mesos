@@ -39,24 +39,22 @@ type Node struct {
 // ErrUnmarshal is returned whenever config unmarshalling
 var ErrUnmarshal = errors.New("config: unmarshaling failed")
 
-// UnmarshalText implements the encoding.TextUnmarshaler interface.
-func (n *Node) UnmarshalText(text []byte) (err error) {
+// Parse attempts to deserialize a config.Node from a byte array.
+func Parse(text []byte) (n *Node, err error) {
+	n = &Node{}
 	fs := strings.Fields(string(text))
 	if len(fs) != 4 {
-		return ErrUnmarshal
+		return n, ErrUnmarshal
 	}
 	n.Name, n.Host = fs[0], fs[1]
 
 	if n.RPCPort, err = strconv.ParseUint(fs[2], 10, 64); err != nil {
-		return ErrUnmarshal
+		return n, ErrUnmarshal
 	} else if n.ClientPort, err = strconv.ParseUint(fs[3], 10, 64); err != nil {
-		return ErrUnmarshal
+		return n, ErrUnmarshal
 	}
-	return nil
+	return n, nil
 }
-
-// MarshalText implements the encoding.TextMarshaler interface.
-func (n Node) MarshalText() ([]byte, error) { return []byte(n.String()), nil }
 
 // String implements the fmt.Stringer interface, returning a space separated
 // string representation of a Node.

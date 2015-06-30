@@ -19,8 +19,7 @@
 package scheduler
 
 import (
-	"bytes"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -29,7 +28,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -50,16 +48,6 @@ const (
 	diskPerTask  = 1024
 	portsPerTask = 2
 )
-
-var cmdTemplate = template.Must(template.New("etcd-cmd").Parse(
-	`./etcd --data-dir="etcd_data" --name="{{.Name}}" ` +
-		`--initial-cluster-state="{{.Type}}" ` +
-		`--listen-peer-urls="http://{{.Host}}:{{.RPCPort}}" ` +
-		`--initial-advertise-peer-urls="http://{{.Host}}:{{.RPCPort}}" ` +
-		`--listen-client-urls="http://{{.Host}}:{{.ClientPort}}" ` +
-		`--advertise-client-urls="http://{{.Host}}:{{.ClientPort}}" ` +
-		`--initial-cluster="{{.Cluster}}"`,
-))
 
 // State represents the mutability of the scheduler.
 type State int32
@@ -101,11 +89,6 @@ type EtcdScheduler struct {
 	launchChan             chan struct{}
 	pauseChan              chan struct{}
 	chillFactor            time.Duration
-}
-
-type EtcdParams struct {
-	config.Node
-	Cluster string
 }
 
 type OfferResources struct {
@@ -260,11 +243,12 @@ func (s *EtcdScheduler) StatusUpdate(
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
-	node := config.Node{SlaveID: status.SlaveId.GetValue()}
-	if err := node.UnmarshalText([]byte(status.GetTaskId().GetValue())); err != nil {
+	node, err := config.Parse([]byte(status.GetTaskId().GetValue()))
+	if err != nil {
 		log.Errorf("scheduler: failed to unmarshal config.Node from TaskId: %s", err)
 		return
 	}
+	node.SlaveID = status.SlaveId.GetValue()
 
 	// If this task was pending, we now know it's running or dead.
 	delete(s.pending, node.Name)
@@ -289,7 +273,7 @@ func (s *EtcdScheduler) StatusUpdate(
 	case mesos.TaskState_TASK_RUNNING:
 		_, present := s.running[node.Name]
 		if !present {
-			s.running[node.Name] = &node
+			s.running[node.Name] = node
 		}
 
 		// During reconcilliation, we may find nodes with higher ID's due to ntp drift
@@ -578,6 +562,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		for _, etcdConfig := range runningCopy {
 			if etcdConfig.SlaveID == offer.SlaveId.GetValue() {
 				if s.SingleInstancePerSlave {
+					log.Info("Skipping offer: already running on this slave.")
 					return false
 				}
 			}
@@ -594,11 +579,13 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		}
 	}
 
-	if len(s.running) >= s.desiredInstanceCount {
-		log.Infoln("Already running enough tasks.")
+	// Do this again because BlockingPop may have taken a long time.
+	if !s.shouldLaunch() {
+		log.Infoln("Skipping launch attempt for now.")
 		s.offerCache.Push(offer)
 		return
 	}
+
 	resources := parseOffer(offer)
 
 	// TODO(tyler) this is a broken hack
@@ -612,6 +599,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 
 	s.highestInstanceID++
 
+	s.mut.Lock()
 	var clusterType string
 	if len(s.running) == 0 {
 		clusterType = "new"
@@ -632,19 +620,23 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	for _, r := range s.running {
 		running = append(running, r)
 	}
-
-	cmd, err := command(running...)
+	serializedNodes, err := json.Marshal(running)
+	log.Infof("Serialized running: %+v", string(serializedNodes))
 	if err != nil {
-		log.Error(err)
+		log.Errorf("Could not serialize running list: %v", err)
+		// This Unlock is not deferred because the test implementation of LaunchTasks
+		// calls this scheduler's StatusUpdate method, causing the test to deadlock.
+		s.mut.Unlock()
 		return
 	}
 
-	serializedConfig := node.String()
+	configSummary := node.String()
 
-	taskID := &mesos.TaskID{Value: &serializedConfig}
+	taskID := &mesos.TaskID{Value: &configSummary}
 
-	executor := s.newExecutorInfo(node, s.executorUris, cmd)
+	executor := s.newExecutorInfo(node, s.executorUris)
 	task := &mesos.TaskInfo{
+		Data:     serializedNodes,
 		Name:     proto.String(name),
 		TaskId:   taskID,
 		SlaveId:  offer.SlaveId,
@@ -664,15 +656,14 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		task.GetName(),
 		offer.Id.GetValue(),
 	)
-	log.Infof("Launching etcd node with command: %s", cmd)
+	log.Info("Launching etcd node.")
 
 	tasks := []*mesos.TaskInfo{task}
-	log.Infoln("Launching ", len(tasks), "tasks for offer", offer.Id.GetValue())
-	// TODO(tyler) move configuration to executor
-	go rpc.ConfigureInstance(s.running, node)
 
-	s.mut.Lock()
 	s.pending[node.Name] = struct{}{}
+
+	// This Unlock is not deferred because the test implementation of LaunchTasks
+	// calls this scheduler's StatusUpdate method, causing the test to deadlock.
 	s.mut.Unlock()
 
 	driver.LaunchTasks(
@@ -682,7 +673,6 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 			RefuseSeconds: proto.Float64(1),
 		},
 	)
-	return
 }
 
 func parseOffer(offer *mesos.Offer) OfferResources {
@@ -754,11 +744,10 @@ func ServeExecutorArtifact(path, address string, artifactPort int) *string {
 func (s *EtcdScheduler) newExecutorInfo(
 	node *config.Node,
 	executorURIs []*mesos.CommandInfo_URI,
-	cmd string,
 ) *mesos.ExecutorInfo {
 
 	_, bin := filepath.Split(s.ExecutorPath)
-	execmd := fmt.Sprintf("./%s -exec=\"%s\" -log_dir=./", bin, cmd)
+	execmd := fmt.Sprintf("./%s -log_dir=./", bin)
 
 	return &mesos.ExecutorInfo{
 		ExecutorId: util.NewExecutorID(node.Name),
@@ -773,23 +762,4 @@ func (s *EtcdScheduler) newExecutorInfo(
 			util.NewScalarResource("mem", 32),
 		},
 	}
-}
-
-// command returns an etcd command templated with the given Nodes.
-func command(nodes ...*config.Node) (string, error) {
-	if len(nodes) == 0 {
-		return "", errors.New("No nodes to configure.")
-	}
-
-	cluster := make([]string, 0, len(nodes))
-	for _, n := range nodes {
-		cluster = append(cluster, fmt.Sprintf("%s=http://%s:%d", n.Name, n.Host, n.RPCPort))
-	}
-
-	var out bytes.Buffer
-	err := cmdTemplate.Execute(&out, EtcdParams{
-		Node:    *nodes[0],
-		Cluster: strings.Join(cluster, ","),
-	})
-	return out.String(), err
 }

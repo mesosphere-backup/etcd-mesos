@@ -19,8 +19,6 @@
 package main
 
 import (
-	"flag"
-
 	log "github.com/golang/glog"
 	"github.com/mesos/mesos-go/executor"
 
@@ -28,18 +26,15 @@ import (
 )
 
 func main() {
-	cmd := flag.String("exec", "", "Etcd command to launch")
-	flag.Parse()
-
 	log.Infoln("Starting Etcd Executor")
 
 	dconfig := executor.DriverConfig{
-		Executor: etcdexecutor.New(*cmd),
+		Executor: etcdexecutor.New(),
 	}
 	driver, err := executor.NewMesosExecutorDriver(dconfig)
 
 	if err != nil {
-		log.Infoln("Unable to create a ExecutorDriver ", err.Error())
+		log.Infoln("Unable to create an ExecutorDriver ", err.Error())
 	}
 
 	_, err = driver.Start()

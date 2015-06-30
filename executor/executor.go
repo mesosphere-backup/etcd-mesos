@@ -19,14 +19,22 @@
 package executor
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"text/template"
 	"time"
 
 	log "github.com/golang/glog"
 	"github.com/mesos/mesos-go/executor"
 	mesos "github.com/mesos/mesos-go/mesosproto"
+
+	"github.com/mesosphere/etcd-mesos/config"
+	"github.com/mesosphere/etcd-mesos/rpc"
 )
 
 const (
@@ -34,17 +42,31 @@ const (
 	defaultMesosSlavePingTimeout     = 15 * time.Second
 )
 
+var cmdTemplate = template.Must(template.New("etcd-cmd").Parse(
+	`./etcd --data-dir=etcd_data --name={{.Name}} ` +
+		`--initial-cluster-state={{.Type}} ` +
+		`--listen-peer-urls=http://{{.Host}}:{{.RPCPort}} ` +
+		`--initial-advertise-peer-urls=http://{{.Host}}:{{.RPCPort}} ` +
+		`--listen-client-urls=http://{{.Host}}:{{.ClientPort}} ` +
+		`--advertise-client-urls=http://{{.Host}}:{{.ClientPort}} ` +
+		`--initial-cluster={{.Cluster}}`,
+))
+
 type Executor struct {
 	cancelSuicide chan struct{}
 	tasksLaunched int
-	cmd           string
 	shutdown      func()
+}
+
+type EtcdParams struct {
+	config.Node
+	Cluster string
 }
 
 // New returns an an implementation of an etcd Mesos executor that runs the
 // given command when tasks are launched.
-func New(cmd string) executor.Executor {
-	return &Executor{cancelSuicide: make(chan struct{}), cmd: cmd, shutdown: func() { os.Exit(1) }}
+func New() executor.Executor {
+	return &Executor{cancelSuicide: make(chan struct{}), shutdown: func() { os.Exit(1) }}
 }
 
 func (e *Executor) Registered(_ executor.ExecutorDriver, _ *mesos.ExecutorInfo, _ *mesos.FrameworkInfo, si *mesos.SlaveInfo) {
@@ -86,12 +108,46 @@ func (e *Executor) Disconnected(_ executor.ExecutorDriver) {
 }
 
 func (e *Executor) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
+	defer log.Flush()
 	e.tasksLaunched++
 	log.Infof("Launching task #%d %q with command %q", ti.GetName(), ti.Command.GetValue())
 
+	var running []*config.Node
+	err := json.Unmarshal(ti.Data, &running)
+	if err != nil {
+		log.Errorf("Could not deserialize running nodes list: %v", err)
+		handleFailure(dv, ti)
+		return
+	}
+
+	cmd, err := command(running...)
+	if err != nil {
+		log.Errorf("Failed to create configuration for etcd: %v", err)
+		handleFailure(dv, ti)
+		return
+	}
+	log.Infof("Running command: %s", cmd)
+
+	// TODO(tyler) the args to ConfigureInstance should probably be changed
+	// to just accept a []*config.Node instead of map[string]*config.Node
+	runningMap := map[string]*config.Node{}
+	for i, r := range running {
+		// Skip first element because we haven't started it yet.
+		if i > 0 {
+			runningMap[string(i)] = r
+		}
+	}
+	err = rpc.ConfigureInstance(runningMap, running[0])
+	if err != nil {
+		log.Errorf("Could not configure new etcd instance, cannot continue: %v", err)
+		handleFailure(dv, ti)
+		return
+	}
+
 	go func() {
-		log.Infoln("calling command: ", e.cmd)
-		parts := strings.Fields(e.cmd)
+		defer log.Flush()
+		log.Infoln("calling command: ", cmd)
+		parts := strings.Fields(cmd)
 		head, tail := parts[0], parts[1:]
 		command := exec.Command(head, tail...)
 		command.Stdout = os.Stdout
@@ -111,6 +167,7 @@ func (e *Executor) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
 		if err != nil {
 			if exitError, ok := err.(*exec.ExitError); ok {
 				// TODO: process exited with non-zero status
+				log.Errorf("cmd was: %s", cmd)
 				log.Errorf("Process exited with nonzero exit status: %+v", exitError)
 			} else {
 				// TODO: I/O problems...
@@ -136,6 +193,18 @@ func (e *Executor) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
 	}()
 }
 
+func handleFailure(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
+	finStatus := &mesos.TaskStatus{
+		TaskId: ti.GetTaskId(),
+		State:  mesos.TaskState_TASK_FAILED.Enum(),
+	}
+	_, err := dv.SendStatusUpdate(finStatus)
+	if err != nil {
+		log.Infoln("Failed to send final status update: ", err)
+	}
+	dv.Abort()
+}
+
 func (e *Executor) KillTask(_ executor.ExecutorDriver, t *mesos.TaskID) {
 	log.Infof("KillTask: not implemented: %v", t)
 }
@@ -150,4 +219,25 @@ func (e *Executor) Shutdown(_ executor.ExecutorDriver) {
 
 func (e *Executor) Error(_ executor.ExecutorDriver, err string) {
 	log.Infof("Error: %s", err)
+}
+
+// command returns an etcd command templated with the given Nodes.
+// ASSUMPTION: the first node in the nodes list is the local one.
+func command(nodes ...*config.Node) (string, error) {
+	if len(nodes) == 0 {
+		return "", errors.New("No nodes to configure.")
+	}
+
+	cluster := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		log.Errorf("formatting node: %+v", n)
+		cluster = append(cluster, fmt.Sprintf("%s=http://%s:%d", n.Name, n.Host, n.RPCPort))
+	}
+
+	var out bytes.Buffer
+	err := cmdTemplate.Execute(&out, EtcdParams{
+		Node:    *nodes[0],
+		Cluster: strings.Join(cluster, ","),
+	})
+	return out.String(), err
 }

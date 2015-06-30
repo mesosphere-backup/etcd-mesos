@@ -60,7 +60,7 @@ func TestNode_String(t *testing.T) {
 		{Node{ClientPort: 1}, "  0 1"},
 		{Node{Name: "a", Host: "b", RPCPort: 1, ClientPort: 2}, "a b 1 2"},
 	} {
-		if got := tt.String(); !reflect.DeepEqual(got, tt.want) {
+		if got := tt.String(); got != tt.want {
 			t.Errorf("test #%d: got : %s, want: %s", i, got, tt.want)
 		}
 	}

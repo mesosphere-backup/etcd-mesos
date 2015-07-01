@@ -47,13 +47,14 @@ func (oc *OfferCache) Push(newOffer *mesos.Offer) bool {
 	defer oc.mut.Unlock()
 	if len(oc.offerSet) < oc.maxOffers {
 		// Reject offers from existing slaves.
-		_, exists := oc.offerSet[newOffer.SlaveId.GetValue()]
-		if exists && oc.singleInstancePerSlave {
-			log.Info("Offer already exists for slave ", newOffer.SlaveId.GetValue())
-			return false
-		} else {
-			oc.offerSet[newOffer.GetId().GetValue()] = newOffer
+		for _, offer := range oc.offerSet {
+			if offer.SlaveId.GetValue() == newOffer.SlaveId.GetValue() &&
+				oc.singleInstancePerSlave {
+				log.Info("Offer already exists for slave ", newOffer.SlaveId.GetValue())
+				return false
+			}
 		}
+		oc.offerSet[newOffer.GetId().GetValue()] = newOffer
 
 		// Try to add offer to the queue, clearing out invalid
 		// offers in order to make room if necessary.

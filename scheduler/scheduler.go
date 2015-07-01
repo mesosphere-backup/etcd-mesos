@@ -119,8 +119,9 @@ func NewEtcdScheduler(
 			desiredInstanceCount,
 			singleInstancePerSlave,
 		),
-		healthCheck: rpc.HealthCheck,
-		shutdown:    func() { os.Exit(1) },
+		healthCheck:            rpc.HealthCheck,
+		shutdown:               func() { os.Exit(1) },
+		singleInstancePerSlave: singleInstancePerSlave,
 	}
 }
 

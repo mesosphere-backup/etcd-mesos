@@ -30,32 +30,18 @@ import (
 
 func TestPush(t *testing.T) {
 	for i, tt := range []struct {
-		offers []*mesos.Offer
+		offers []string
 		want   int
 	}{
-		{[]*mesos.Offer{newOffer("a", "a")}, 1},
-		{[]*mesos.Offer{
-			newOffer("a", "a"),
-			newOffer("a", "a"),
-		}, 1},
-		{[]*mesos.Offer{
-			newOffer("a", "a"),
-			newOffer("b", "b"),
-			newOffer("a", "a"),
-		}, 2},
-		{[]*mesos.Offer{
-			newOffer("a", "a"),
-			newOffer("b", "b"),
-			newOffer("c", "c"),
-			newOffer("d", "d"),
-			newOffer("e", "e"),
-			newOffer("f", "f"),
-			newOffer("g", "g"),
-		}, 5},
+		{[]string{"a"}, 1},
+		{[]string{"a", "a"}, 1},
+		{[]string{"a", "b", "a"}, 2},
+		// queue up 7 (2 more than cap of 5) and expect 5
+		{[]string{"a", "b", "c", "d", "e", "f", "g"}, 5},
 	} {
 		oc := New(5, false)
 		for _, o := range tt.offers {
-			oc.Push(o)
+			oc.Push(newOffer(o, o))
 		}
 		if got := oc.Len(); got != tt.want {
 			t.Errorf("test #%d: got : %s, want: %s", i, got, tt.want)
@@ -65,26 +51,21 @@ func TestPush(t *testing.T) {
 
 func TestRescind(t *testing.T) {
 	for i, tt := range []struct {
-		offers   []*mesos.Offer
+		offers   []string
 		rescinds []string
 		want     int
 	}{
-		{[]*mesos.Offer{newOffer("a", "a")}, []string{"a"}, 0},
-		{[]*mesos.Offer{newOffer("a", "a")}, []string{"b"}, 1},
-		{[]*mesos.Offer{}, []string{"a"}, 0},
-		{[]*mesos.Offer{
-			newOffer("a", "a"),
-			newOffer("b", "b"),
-			newOffer("c", "c"),
-			newOffer("d", "d"),
-			newOffer("e", "e"),
-			newOffer("f", "f"),
-			newOffer("g", "g"),
-		}, []string{"a", "g"}, 4},
+		{[]string{"a"}, []string{"a"}, 0},
+		{[]string{"a"}, []string{"b"}, 1},
+		{[]string{}, []string{"a"}, 0},
+		// with 7 valid offers (2 more than cap), and invalidation of one
+		// of the non-rejected ones as well as one of the accepted ones,
+		// we should have 4 offers cached.
+		{[]string{"a", "b", "c", "d", "e", "f", "g"}, []string{"a", "g"}, 4},
 	} {
 		oc := New(5, false)
 		for _, o := range tt.offers {
-			oc.Push(o)
+			oc.Push(newOffer(o, o))
 		}
 		for _, r := range tt.rescinds {
 			oc.Rescind(util.NewOfferID(r))
@@ -98,24 +79,20 @@ func TestRescind(t *testing.T) {
 
 func TestBlockingPop(t *testing.T) {
 	for i, tt := range []struct {
-		offers   []*mesos.Offer
+		offers   []string
 		rescinds []string
 		want     int
 	}{
-		{[]*mesos.Offer{newOffer("a", "a")}, []string{"b"}, 1},
-		{[]*mesos.Offer{
-			newOffer("a", "a"),
-			newOffer("b", "b"),
-			newOffer("c", "c"),
-			newOffer("d", "d"),
-			newOffer("e", "e"),
-			newOffer("f", "f"),
-			newOffer("g", "g"),
-		}, []string{"a", "g"}, 4},
+		// with one valid offer, we should pop once
+		{[]string{"a"}, []string{"b"}, 1},
+		// with 7 valid offers (2 more than cap), and invalidation of one
+		// of the non-rejected ones as well as one of the accepted ones,
+		// we should be able to pop 4 offers
+		{[]string{"a", "b", "c", "d", "e", "f", "g"}, []string{"a", "g"}, 4},
 	} {
 		oc := New(5, false)
 		for _, o := range tt.offers {
-			oc.Push(o)
+			oc.Push(newOffer(o, o))
 		}
 		for _, r := range tt.rescinds {
 			oc.Rescind(util.NewOfferID(r))

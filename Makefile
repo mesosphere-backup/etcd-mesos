@@ -33,7 +33,4 @@ cover:
 	done
 
 test:
-	for i in `dirname **/*_test.go | grep -v "_vendor" | sort | uniq`; do \
-		echo $$i; \
-		go test -race ./$$i/... ;\
-	done
+	go test -race ./...

@@ -17,7 +17,7 @@ bin/etcd_executor: bin
 bin/etcd: bin
 	git submodule init
 	git submodule update
-	cd vendor/coreos/etcd; ./build; mv bin/* ../../../bin/
+	cd _vendor/coreos/etcd; ./build; mv bin/* ../../../bin/
   
 run-scheduler:
 	go run -race cmd/etcd-scheduler/app.go -logtostderr=true
@@ -26,14 +26,14 @@ install:
 	go install ./cmd/...
 
 cover:
-	for i in `dirname **/*_test.go | grep -v "vendor" | sort | uniq`; do \
+	for i in `dirname **/*_test.go | grep -v "_vendor" | sort | uniq`; do \
 		echo $$i; \
 		go test -v -race ./$$i/... -coverprofile=em-coverage.out; \
 		go tool cover -func=em-coverage.out; rm em-coverage.out; \
 	done
 
 test:
-	for i in `dirname **/*_test.go | grep -v "vendor" | sort | uniq`; do \
+	for i in `dirname **/*_test.go | grep -v "_vendor" | sort | uniq`; do \
 		echo $$i; \
 		go test -race ./$$i/... ;\
 	done

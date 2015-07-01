@@ -417,11 +417,17 @@ func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
 			log.Errorf("Error while calling ReconcileTasks: %s", err)
 		} else {
 			// We want to allow some time for reconciled updates to arrive.
-			time.Sleep(2 * s.chillFactor * time.Second)
-			s.mut.Lock()
-			log.Info("Scheduler transitioning to Mutable state.")
-			s.state = Mutable
-			s.mut.Unlock()
+			// This happens in a goroutine because we don't want to tie up
+			// the goroutine that could be responsible for handling
+			// status updates that come in after the above call to
+			// ReconcileTasks.
+			go func() {
+				time.Sleep(2 * s.chillFactor * time.Second)
+				s.mut.Lock()
+				log.Info("Scheduler transitioning to Mutable state.")
+				s.state = Mutable
+				s.mut.Unlock()
+			}()
 			return
 		}
 		time.Sleep(time.Duration(backoff) * time.Second)

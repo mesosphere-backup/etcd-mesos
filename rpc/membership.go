@@ -133,7 +133,7 @@ func MemberList(
 				log.Errorf("could not query %s for member list", args.Host)
 				continue
 			}
-			log.Info("MemberList response:", string(body))
+			log.V(2).Info("MemberList response:", string(body))
 			var memberList config.ClusterMemberList
 			err = json.Unmarshal(body, &memberList)
 			if err != nil {

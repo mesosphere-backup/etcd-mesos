@@ -71,10 +71,12 @@ func (oc *OfferCache) Push(newOffer *mesos.Offer) bool {
 	return false
 }
 
-func (oc *OfferCache) Rescind(offerId *mesos.OfferID) {
+func (oc *OfferCache) Rescind(offerId *mesos.OfferID) bool {
 	oc.mut.Lock()
 	defer oc.mut.Unlock()
+	_, present := oc.offerSet[offerId.GetValue()]
 	delete(oc.offerSet, offerId.GetValue())
+	return present
 }
 
 func (oc *OfferCache) BlockingPop() *mesos.Offer {

@@ -26,17 +26,19 @@ import (
 )
 
 type OfferCache struct {
-	mut        sync.RWMutex
-	offerSet   map[string]*mesos.Offer
-	offerQueue chan *mesos.Offer
-	maxOffers  int
+	mut                    sync.RWMutex
+	offerSet               map[string]*mesos.Offer
+	offerQueue             chan *mesos.Offer
+	maxOffers              int
+	singleInstancePerSlave bool
 }
 
-func New(maxOffers int) *OfferCache {
+func New(maxOffers int, singleInstancePerSlave bool) *OfferCache {
 	return &OfferCache{
-		offerSet:   map[string]*mesos.Offer{},
-		offerQueue: make(chan *mesos.Offer, maxOffers),
-		maxOffers:  maxOffers,
+		offerSet:               map[string]*mesos.Offer{},
+		offerQueue:             make(chan *mesos.Offer, maxOffers),
+		maxOffers:              maxOffers,
+		singleInstancePerSlave: singleInstancePerSlave,
 	}
 }
 
@@ -45,7 +47,8 @@ func (oc *OfferCache) Push(newOffer *mesos.Offer) bool {
 	defer oc.mut.Unlock()
 	if len(oc.offerSet) < oc.maxOffers {
 		// Reject offers from existing slaves.
-		if _, exists := oc.offerSet[newOffer.SlaveId.GetValue()]; exists {
+		_, exists := oc.offerSet[newOffer.SlaveId.GetValue()]
+		if exists && oc.singleInstancePerSlave {
 			log.Info("Offer already exists for slave ", newOffer.SlaveId.GetValue())
 			return false
 		} else {
@@ -74,8 +77,7 @@ func (oc *OfferCache) Rescind(offerId *mesos.OfferID) {
 }
 
 func (oc *OfferCache) BlockingPop() *mesos.Offer {
-	for {
-		offer := <-oc.offerQueue
+	for offer := range oc.offerQueue {
 		oc.mut.Lock()
 		if _, ok := oc.offerSet[offer.GetId().GetValue()]; ok {
 			delete(oc.offerSet, offer.GetId().GetValue())
@@ -84,6 +86,9 @@ func (oc *OfferCache) BlockingPop() *mesos.Offer {
 		}
 		oc.mut.Unlock()
 	}
+	// offerQueue was closed... this is unexpected.
+	log.Error("offerQueue was closed unexpectedly.")
+	return nil
 }
 
 func (oc *OfferCache) Len() int {

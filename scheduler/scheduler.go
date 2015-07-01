@@ -75,7 +75,7 @@ type EtcdScheduler struct {
 	ZkConnect              string
 	ZkChroot               string
 	ZkServers              []string
-	SingleInstancePerSlave bool
+	singleInstancePerSlave bool
 	desiredInstanceCount   int
 	healthCheck            func(map[string]*config.Node) error
 	shutdown               func()
@@ -102,6 +102,7 @@ func NewEtcdScheduler(
 	desiredInstanceCount int,
 	chillFactor int,
 	executorUris []*mesos.CommandInfo_URI,
+	singleInstancePerSlave bool,
 ) *EtcdScheduler {
 	return &EtcdScheduler{
 		state:                Immutable,
@@ -114,9 +115,12 @@ func NewEtcdScheduler(
 		desiredInstanceCount: desiredInstanceCount,
 		launchChan:           make(chan struct{}, 2048),
 		pauseChan:            make(chan struct{}, 2048),
-		offerCache:           offercache.New(desiredInstanceCount),
-		healthCheck:          rpc.HealthCheck,
-		shutdown:             func() { os.Exit(1) },
+		offerCache: offercache.New(
+			desiredInstanceCount,
+			singleInstancePerSlave,
+		),
+		healthCheck: rpc.HealthCheck,
+		shutdown:    func() { os.Exit(1) },
 	}
 }
 
@@ -186,7 +190,7 @@ func (s *EtcdScheduler) ResourceOffers(
 		s.mut.RUnlock()
 		if alreadyUsingSlave {
 			log.Infoln("Already using this slave for etcd instance.")
-			if s.SingleInstancePerSlave {
+			if s.singleInstancePerSlave {
 				log.Infoln("Skipping offer.")
 				continue
 			}
@@ -561,7 +565,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		runningCopy := s.RunningCopy()
 		for _, etcdConfig := range runningCopy {
 			if etcdConfig.SlaveID == offer.SlaveId.GetValue() {
-				if s.SingleInstancePerSlave {
+				if s.singleInstancePerSlave {
 					log.Info("Skipping offer: already running on this slave.")
 					return false
 				}

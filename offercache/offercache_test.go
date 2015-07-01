@@ -19,7 +19,6 @@
 package offercache
 
 import (
-	"reflect"
 	"testing"
 	"time"
 	//"testing/quick"
@@ -34,31 +33,31 @@ func TestPush(t *testing.T) {
 		offers []*mesos.Offer
 		want   int
 	}{
-		{[]*mesos.Offer{NewOffer("a", "a")}, 1},
+		{[]*mesos.Offer{newOffer("a", "a")}, 1},
 		{[]*mesos.Offer{
-			NewOffer("a", "a"),
-			NewOffer("a", "a"),
+			newOffer("a", "a"),
+			newOffer("a", "a"),
 		}, 1},
 		{[]*mesos.Offer{
-			NewOffer("a", "a"),
-			NewOffer("b", "b"),
-			NewOffer("a", "a"),
+			newOffer("a", "a"),
+			newOffer("b", "b"),
+			newOffer("a", "a"),
 		}, 2},
 		{[]*mesos.Offer{
-			NewOffer("a", "a"),
-			NewOffer("b", "b"),
-			NewOffer("c", "c"),
-			NewOffer("d", "d"),
-			NewOffer("e", "e"),
-			NewOffer("f", "f"),
-			NewOffer("g", "g"),
+			newOffer("a", "a"),
+			newOffer("b", "b"),
+			newOffer("c", "c"),
+			newOffer("d", "d"),
+			newOffer("e", "e"),
+			newOffer("f", "f"),
+			newOffer("g", "g"),
 		}, 5},
 	} {
-		oc := New(5)
+		oc := New(5, false)
 		for _, o := range tt.offers {
 			oc.Push(o)
 		}
-		if got := oc.Len(); !reflect.DeepEqual(got, tt.want) {
+		if got := oc.Len(); got != tt.want {
 			t.Errorf("test #%d: got : %s, want: %s", i, got, tt.want)
 		}
 	}
@@ -70,27 +69,27 @@ func TestRescind(t *testing.T) {
 		rescinds []string
 		want     int
 	}{
-		{[]*mesos.Offer{NewOffer("a", "a")}, []string{"a"}, 0},
-		{[]*mesos.Offer{NewOffer("a", "a")}, []string{"b"}, 1},
+		{[]*mesos.Offer{newOffer("a", "a")}, []string{"a"}, 0},
+		{[]*mesos.Offer{newOffer("a", "a")}, []string{"b"}, 1},
 		{[]*mesos.Offer{}, []string{"a"}, 0},
 		{[]*mesos.Offer{
-			NewOffer("a", "a"),
-			NewOffer("b", "b"),
-			NewOffer("c", "c"),
-			NewOffer("d", "d"),
-			NewOffer("e", "e"),
-			NewOffer("f", "f"),
-			NewOffer("g", "g"),
+			newOffer("a", "a"),
+			newOffer("b", "b"),
+			newOffer("c", "c"),
+			newOffer("d", "d"),
+			newOffer("e", "e"),
+			newOffer("f", "f"),
+			newOffer("g", "g"),
 		}, []string{"a", "g"}, 4},
 	} {
-		oc := New(5)
+		oc := New(5, false)
 		for _, o := range tt.offers {
 			oc.Push(o)
 		}
 		for _, r := range tt.rescinds {
 			oc.Rescind(util.NewOfferID(r))
 		}
-		if got := oc.Len(); !reflect.DeepEqual(got, tt.want) {
+		if got := oc.Len(); got != tt.want {
 			t.Errorf("test #%d: got : %s, want: %s", i, got, tt.want)
 		}
 	}
@@ -103,18 +102,18 @@ func TestBlockingPop(t *testing.T) {
 		rescinds []string
 		want     int
 	}{
-		{[]*mesos.Offer{NewOffer("a", "a")}, []string{"b"}, 1},
+		{[]*mesos.Offer{newOffer("a", "a")}, []string{"b"}, 1},
 		{[]*mesos.Offer{
-			NewOffer("a", "a"),
-			NewOffer("b", "b"),
-			NewOffer("c", "c"),
-			NewOffer("d", "d"),
-			NewOffer("e", "e"),
-			NewOffer("f", "f"),
-			NewOffer("g", "g"),
+			newOffer("a", "a"),
+			newOffer("b", "b"),
+			newOffer("c", "c"),
+			newOffer("d", "d"),
+			newOffer("e", "e"),
+			newOffer("f", "f"),
+			newOffer("g", "g"),
 		}, []string{"a", "g"}, 4},
 	} {
-		oc := New(5)
+		oc := New(5, false)
 		for _, o := range tt.offers {
 			oc.Push(o)
 		}
@@ -140,22 +139,22 @@ func TestBlockingPop(t *testing.T) {
 			return n
 		}()
 
-		if !reflect.DeepEqual(got, tt.want) {
+		if got != tt.want {
 			t.Errorf("test #%d: got : %s, want: %s", i, got, tt.want)
 		}
 	}
 }
 
 func Test_gc(t *testing.T) {
-	oc := New(5)
+	oc := New(5, false)
 	for i := 0; i < 5000; i++ {
 		oc.Rescind(util.NewOfferID(string(i - 50)))
-		oc.Push(NewOffer(string(i), string(i)))
+		oc.Push(newOffer(string(i), string(i)))
 	}
 	assert.Equal(t, 5, oc.Len())
 }
 
-func NewOffer(offer, slave string) *mesos.Offer {
+func newOffer(offer, slave string) *mesos.Offer {
 	return &mesos.Offer{
 		Id:      util.NewOfferID(offer),
 		SlaveId: util.NewSlaveID(slave),

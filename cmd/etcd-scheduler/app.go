@@ -102,12 +102,16 @@ func main() {
 	// chillFactor is the number of seconds that are slept for to allow for
 	// convergence across the cluster during mutations.
 	chillFactor := 10
-	etcdScheduler := etcdscheduler.NewEtcdScheduler(*taskCount, chillFactor, executorUris)
+	etcdScheduler := etcdscheduler.NewEtcdScheduler(
+		*taskCount,
+		chillFactor,
+		executorUris,
+		*singleInstancePerSlave,
+	)
 	etcdScheduler.ExecutorPath = *executorPath
 	etcdScheduler.RestorePath = *restorePath
 	etcdScheduler.Master = *master
 	etcdScheduler.ClusterName = *clusterName
-	etcdScheduler.SingleInstancePerSlave = *singleInstancePerSlave
 	etcdScheduler.ZkConnect = *zkConnect
 
 	fwinfo := &mesos.FrameworkInfo{

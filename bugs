@@ -17,7 +17,7 @@ when fw dies, then slave dies, then fw fails over, it will launch before removin
   cause: fw did not verify that defunct nodes are purged before launching
   fixed
 
-executors stay alive forever when master fails?
+executors stay alive forever when master, slave, or etcd instance fails
 
 fw does not re-register after master fails and then restarts?
 
@@ -33,3 +33,6 @@ json serialization was overriden
   fixed
 
 logging not working on executor
+
+deadlock in offercache due to lock acquisition in a for loop
+  fixed

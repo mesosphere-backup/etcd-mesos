@@ -163,6 +163,7 @@ func (s *EtcdScheduler) Reregistered(
 }
 
 func (s *EtcdScheduler) Disconnected(scheduler.SchedulerDriver) {
+	log.Error("Mesos master disconnected.")
 	s.mut.Lock()
 	s.state = Immutable
 	s.mut.Unlock()
@@ -180,30 +181,38 @@ func (s *EtcdScheduler) ResourceOffers(
 			totalPorts += (*pr.End + 1) - *pr.Begin
 		}
 
-		alreadyUsingSlave := false
-		s.mut.RLock()
-		for _, config := range s.running {
-			if config.SlaveID == offer.GetSlaveId().GetValue() {
-				alreadyUsingSlave = true
-				break
-			}
-		}
-		s.mut.RUnlock()
-		if alreadyUsingSlave {
-			log.Infoln("Already using this slave for etcd instance.")
-			if s.singleInstancePerSlave {
-				log.Infoln("Skipping offer.")
-				continue
-			}
-			log.Infoln("-single-instance-per-slave is false, continuing.")
-		}
-
-		log.Infoln("Received Offer <", offer.Id.GetValue(),
+		log.V(2).Infoln("Received Offer <", offer.Id.GetValue(),
 			"> with cpus=", resources.cpus,
 			" mem=", resources.mems,
 			" ports=", totalPorts,
 			" disk=", resources.disk,
 			" from slave ", *offer.SlaveId.Value)
+
+		s.mut.RLock()
+		if s.state == Immutable {
+			log.V(2).Info("Scheduler is Immutable.  Declining received offer.")
+			s.decline(driver, offer)
+			s.mut.RUnlock()
+			continue
+		}
+		s.mut.RUnlock()
+
+		alreadyUsingSlave := false
+		for _, config := range s.RunningCopy() {
+			if config.SlaveID == offer.GetSlaveId().GetValue() {
+				alreadyUsingSlave = true
+				break
+			}
+		}
+		if alreadyUsingSlave {
+			log.V(2).Infoln("Already using this slave for etcd instance.")
+			if s.singleInstancePerSlave {
+				log.V(2).Infoln("Skipping offer.")
+				s.decline(driver, offer)
+				continue
+			}
+			log.V(2).Infoln("-single-instance-per-slave is false, continuing.")
+		}
 
 		if resources.cpus < cpusPerTask {
 			log.Infoln("Offer cpu is insufficient.")
@@ -226,10 +235,22 @@ func (s *EtcdScheduler) ResourceOffers(
 			totalPorts >= portsPerTask &&
 			resources.disk >= diskPerTask &&
 			s.offerCache.Push(offer) {
-			log.Infoln("Adding offer to offer cache.")
+
+			// golang for-loop variable reuse necessitates a copy here.
+			offerCpy := *offer
+			go func() {
+				time.Sleep(s.chillFactor / 2 * time.Second)
+				// Decline the offer if we don't try to take it after a few seconds.
+				if s.offerCache.Rescind(offerCpy.Id) {
+					s.decline(driver, &offerCpy)
+				}
+			}()
+
+			log.V(2).Infoln("Added offer to offer cache.")
 			s.QueueLaunchAttempt()
 		} else {
-			log.Infoln("Offer rejected.")
+			s.decline(driver, offer)
+			log.V(2).Infoln("Offer rejected.")
 		}
 	}
 }
@@ -270,7 +291,7 @@ func (s *EtcdScheduler) StatusUpdate(
 		s.PumpTheBrakes()
 		delete(s.running, node.Name)
 		go func() {
-			if err := rpc.RemoveInstance(s.running, node.Name); err != nil {
+			if err := rpc.RemoveInstance(s.RunningCopy(), node.Name); err != nil {
 				log.Errorf("Failed to remove instance: %s", err)
 			}
 			s.QueueLaunchAttempt()
@@ -352,6 +373,22 @@ func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 
 // ----------------------- helper functions ------------------------- //
 
+// decline declines an offer.
+func (s *EtcdScheduler) decline(
+	driver scheduler.SchedulerDriver,
+	offer *mesos.Offer,
+) {
+	log.V(2).Infof("Declining offer %s.", offer.Id.GetValue())
+	driver.DeclineOffer(
+		offer.Id,
+		&mesos.Filters{
+			RefuseSeconds: proto.Float64(float64(5 * s.chillFactor)),
+		},
+	)
+}
+
+// RunningCopy makes a copy of the running map to minimize time
+// spent with the scheduler lock is minimized.
 func (s *EtcdScheduler) RunningCopy() map[string]*config.Node {
 	s.mut.RLock()
 	defer s.mut.RUnlock()
@@ -379,9 +416,15 @@ func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
 		if err != nil {
 			log.Errorf("Error while calling ReconcileTasks: %s", err)
 		} else {
+			// We want to allow some time for reconciled updates to arrive.
+			// This happens in a goroutine because we don't want to tie up
+			// the goroutine that could be responsible for handling
+			// status updates that come in after the above call to
+			// ReconcileTasks.
 			go func() {
-				time.Sleep(4 * s.chillFactor * time.Second)
+				time.Sleep(2 * s.chillFactor * time.Second)
 				s.mut.Lock()
+				log.Info("Scheduler transitioning to Mutable state.")
 				s.state = Mutable
 				s.mut.Unlock()
 			}()
@@ -417,6 +460,10 @@ func (s *EtcdScheduler) PumpTheBrakes() {
 func (s *EtcdScheduler) PeriodicLaunchRequestor() {
 	for {
 		s.mut.RLock()
+		log.Infof(
+			"running instances: %d desired: %d offers: %d",
+			len(s.running), s.desiredInstanceCount, s.offerCache.Len(),
+		)
 		if len(s.running) < s.desiredInstanceCount &&
 			s.state == Mutable {
 			s.QueueLaunchAttempt()
@@ -442,7 +489,7 @@ func (s *EtcdScheduler) Prune() error {
 	if s.state == Mutable {
 		configuredMembers, err := rpc.MemberList(s.running)
 		if err != nil {
-			log.Errorf("PeriodicPruner could not retrieve current member list: %s",
+			log.Errorf("Prune could not retrieve current member list: %s",
 				err)
 			return err
 		} else {
@@ -451,7 +498,7 @@ func (s *EtcdScheduler) Prune() error {
 				if !present {
 					// TODO(tyler) only do this after we've allowed time to settle after
 					// reconciliation, or we will nuke valid nodes!
-					log.Warningf("PeriodicPruner attempting to deconfigure unknown etcd "+
+					log.Warningf("Prune attempting to deconfigure unknown etcd "+
 						"instance: %s", k)
 					if err := rpc.RemoveInstance(s.running, k); err != nil {
 						log.Errorf("Failed to remove instance: %s", err)
@@ -477,7 +524,7 @@ func (s *EtcdScheduler) SerialLauncher(driver scheduler.SchedulerDriver) {
 		for {
 			select {
 			case <-s.pauseChan:
-				log.Infof("SerialLauncher sleeping for %d seconds "+
+				log.V(2).Infof("SerialLauncher sleeping for %d seconds "+
 					"after receiving pause signal.", s.chillFactor)
 				time.Sleep(s.chillFactor * time.Second)
 			default:
@@ -493,11 +540,11 @@ func (s *EtcdScheduler) SerialLauncher(driver scheduler.SchedulerDriver) {
 			s.launchOne(driver)
 
 			// Wait some time between launches to allow a cluster to settle.
-			log.Infof("SerialLauncher sleeping for %d seconds after "+
+			log.V(2).Infof("SerialLauncher sleeping for %d seconds after "+
 				"launch attempt.", s.chillFactor)
 			time.Sleep(s.chillFactor * time.Second)
 		case <-s.pauseChan:
-			log.Infof("SerialLauncher sleeping for %d seconds "+
+			log.V(2).Infof("SerialLauncher sleeping for %d seconds "+
 				"after receiving pause signal.", s.chillFactor)
 			time.Sleep(s.chillFactor * time.Second)
 		}
@@ -513,13 +560,9 @@ func (s *EtcdScheduler) shouldLaunch() bool {
 		return false
 	}
 
-	log.Infof(
-		"running instances: %d desired: %d offers: %d",
-		len(s.running), s.desiredInstanceCount, s.offerCache.Len(),
-	)
-	log.Infof("running: %+v", s.running)
+	log.V(2).Infof("running: %+v", s.running)
 	if len(s.running) >= s.desiredInstanceCount {
-		log.Infoln("Already running enough tasks.")
+		log.V(2).Infoln("Already running enough tasks.")
 		return false
 	}
 
@@ -530,6 +573,8 @@ func (s *EtcdScheduler) shouldLaunch() bool {
 		return false
 	}
 	if len(members) == s.desiredInstanceCount {
+		// TODO(tyler) verify that the mismatched nodes are actually dead,
+		// and attempt to reconcile if not.
 		log.Errorf("Cluster is already configured for desired number of nodes.  " +
 			"Must deconfigure any dead nodes first or we may risk livelock.")
 		return false
@@ -557,8 +602,6 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		return
 	}
 
-	log.Infoln("Attempting to launch a task.")
-
 	// validOffer filters out offers that are no longer
 	// desirable, even though they may have been when
 	// they were enqueued.
@@ -581,23 +624,20 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		offer = s.offerCache.BlockingPop()
 		if validOffer(offer) {
 			break
+		} else {
+			s.decline(driver, offer)
 		}
 	}
 
 	// Do this again because BlockingPop may have taken a long time.
 	if !s.shouldLaunch() {
 		log.Infoln("Skipping launch attempt for now.")
-		s.offerCache.Push(offer)
+		s.decline(driver, offer)
 		return
 	}
-
-	resources := parseOffer(offer)
 
 	// TODO(tyler) this is a broken hack
-	if len(resources.ports) == 0 {
-		log.Warning("Offer contains no ports.")
-		return
-	}
+	resources := parseOffer(offer)
 	lowest := *resources.ports[0].Begin
 	rpcPort := lowest
 	clientPort := lowest + 1
@@ -631,6 +671,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		log.Errorf("Could not serialize running list: %v", err)
 		// This Unlock is not deferred because the test implementation of LaunchTasks
 		// calls this scheduler's StatusUpdate method, causing the test to deadlock.
+		s.decline(driver, offer)
 		s.mut.Unlock()
 		return
 	}

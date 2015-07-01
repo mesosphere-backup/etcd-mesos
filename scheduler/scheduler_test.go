@@ -51,7 +51,7 @@ func NewOffer(id string) *mesos.Offer {
 
 func TestStartup(t *gotesting.T) {
 	mockdriver := &MockSchedulerDriver{}
-	testScheduler := NewEtcdScheduler(1, 0, []*mesos.CommandInfo_URI{})
+	testScheduler := NewEtcdScheduler(1, 0, []*mesos.CommandInfo_URI{}, false)
 	testScheduler.running = map[string]*config.Node{
 		"etcd-1": nil,
 		"etcd-2": nil,
@@ -80,7 +80,7 @@ func TestStartup(t *gotesting.T) {
 }
 
 func TestReconciliationOnStartup(t *gotesting.T) {
-	testScheduler := NewEtcdScheduler(3, 0, []*mesos.CommandInfo_URI{})
+	testScheduler := NewEtcdScheduler(3, 0, []*mesos.CommandInfo_URI{}, false)
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
 		scheduler:       testScheduler,
@@ -122,7 +122,7 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 }
 
 func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
-	testScheduler := NewEtcdScheduler(3, 0, []*mesos.CommandInfo_URI{})
+	testScheduler := NewEtcdScheduler(3, 0, []*mesos.CommandInfo_URI{}, false)
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
 		scheduler:       testScheduler,
@@ -142,13 +142,13 @@ func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 	}
 	memberList := config.ClusterMemberList{
 		Members: []httptypes.Member{
-			httptypes.Member{
+			{
 				ID:         "1",
 				Name:       "etcd-1",
 				PeerURLs:   nil,
 				ClientURLs: nil,
 			},
-			httptypes.Member{
+			{
 				ID:         "2",
 				Name:       "etcd-2",
 				PeerURLs:   nil,
@@ -229,7 +229,12 @@ func TestScheduler(t *gotesting.T) {
 
 	ntasks := 1
 	chillFactor := 0
-	testScheduler := NewEtcdScheduler(ntasks, chillFactor, []*mesos.CommandInfo_URI{})
+	testScheduler := NewEtcdScheduler(
+		ntasks,
+		chillFactor,
+		[]*mesos.CommandInfo_URI{},
+		false,
+	)
 
 	// Skip initialization logic, tested in TestStartup.
 	testScheduler.state = Mutable

@@ -17,22 +17,20 @@ bin/etcd_executor: bin
 bin/etcd: bin
 	git submodule init
 	git submodule update
-	cd vendor/coreos/etcd; ./build; mv bin/* ../../../bin/
+	cd _vendor/coreos/etcd; ./build; mv bin/* ../../../bin/
   
 run-scheduler:
-	go run cmd/etcd-scheduler/app.go -logtostderr=true
+	go run -race cmd/etcd-scheduler/app.go -logtostderr=true
 
 install:
 	go install ./cmd/...
 
 cover:
-	go test -v ./scheduler/... -coverprofile=em-coverage.out; go tool cover -func=em-coverage.out; rm em-coverage.out
-	go test -v ./executor/... -coverprofile=em-coverage.out; go tool cover -func=em-coverage.out; rm em-coverage.out
-	go test -v ./rpc/... -coverprofile=em-coverage.out; go tool cover -func=em-coverage.out; rm em-coverage.out
-	go test -v ./offercache/... -coverprofile=em-coverage.out; go tool cover -func=em-coverage.out; rm em-coverage.out
-	go test -v ./config/... -coverprofile=em-coverage.out; go tool cover -func=em-coverage.out; rm em-coverage.out
+	for i in `dirname **/*_test.go | grep -v "_vendor" | sort | uniq`; do \
+		echo $$i; \
+		go test -v -race ./$$i/... -coverprofile=em-coverage.out; \
+		go tool cover -func=em-coverage.out; rm em-coverage.out; \
+	done
 
 test:
-	go test ./scheduler/...
-	go test ./executor/...
-	go test ./rpc/...
+	go test -race ./...

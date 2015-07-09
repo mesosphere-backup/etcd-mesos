@@ -117,6 +117,7 @@ func main() {
 	fwinfo := &mesos.FrameworkInfo{
 		User:            proto.String(""), // Mesos-go will fill in user.
 		Name:            proto.String("etcd-" + etcdScheduler.ClusterName),
+		Checkpoint:      proto.Bool(true),
 		FailoverTimeout: proto.Float64(*failoverTimeoutSeconds),
 	}
 

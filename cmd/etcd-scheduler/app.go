@@ -83,12 +83,20 @@ func main() {
 	flag.Parse()
 
 	executorUris := []*mesos.CommandInfo_URI{}
-	execUri := etcdscheduler.ServeExecutorArtifact(*executorPath, *address, *artifactPort)
+	execUri, err := etcdscheduler.ServeExecutorArtifact(*executorPath, *address, *artifactPort)
+	if err != nil {
+		log.Errorf("Could not stat executor binary: %v", err)
+		return
+	}
 	executorUris = append(executorUris, &mesos.CommandInfo_URI{
 		Value:      execUri,
 		Executable: proto.Bool(true),
 	})
-	etcdUri := etcdscheduler.ServeExecutorArtifact(*etcdPath, *address, *artifactPort)
+	etcdUri, err := etcdscheduler.ServeExecutorArtifact(*etcdPath, *address, *artifactPort)
+	if err != nil {
+		log.Errorf("Could not stat etcd binary: %v", err)
+		return
+	}
 	executorUris = append(executorUris, &mesos.CommandInfo_URI{
 		Value:      etcdUri,
 		Executable: proto.Bool(true),

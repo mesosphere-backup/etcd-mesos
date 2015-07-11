@@ -36,3 +36,6 @@ logging not working on executor
 
 deadlock in offercache due to lock acquisition in a for loop
   fixed
+
+scheduler does not bail out if the configured executor or etcd binaries are not present
+  fixed

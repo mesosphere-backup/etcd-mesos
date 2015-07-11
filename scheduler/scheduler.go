@@ -764,7 +764,10 @@ func parseOffer(offer *mesos.Offer) OfferResources {
 	}
 }
 
-func ServeExecutorArtifact(path, address string, artifactPort int) *string {
+func ServeExecutorArtifact(path, address string, artifactPort int) (*string, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
 	serveFile := func(pattern string, filename string) {
 		http.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			http.ServeFile(w, r, filename)
@@ -784,7 +787,7 @@ func ServeExecutorArtifact(path, address string, artifactPort int) *string {
 	hostURI := fmt.Sprintf("http://%s:%d/%s", address, artifactPort, base)
 	log.V(2).Infof("Hosting artifact '%s' at '%s'", path, hostURI)
 
-	return &hostURI
+	return &hostURI, nil
 }
 
 func (s *EtcdScheduler) newExecutorInfo(

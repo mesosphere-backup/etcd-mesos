@@ -109,7 +109,7 @@ func main() {
 
 	// chillFactor is the number of seconds that are slept for to allow for
 	// convergence across the cluster during mutations.
-	chillFactor := 1
+	chillFactor := 10
 	etcdScheduler := etcdscheduler.NewEtcdScheduler(
 		*taskCount,
 		chillFactor,

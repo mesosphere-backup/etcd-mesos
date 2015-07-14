@@ -290,12 +290,7 @@ func (s *EtcdScheduler) StatusUpdate(
 		// split brain.
 		s.PumpTheBrakes()
 		delete(s.running, node.Name)
-		go func() {
-			if err := rpc.RemoveInstance(s.RunningCopy(), node.Name); err != nil {
-				log.Errorf("Failed to remove instance: %s", err)
-			}
-			s.QueueLaunchAttempt()
-		}()
+		s.QueueLaunchAttempt()
 	case mesos.TaskState_TASK_RUNNING:
 		_, present := s.running[node.Name]
 		if !present {
@@ -476,13 +471,6 @@ func (s *EtcdScheduler) PeriodicLaunchRequestor() {
 	}
 }
 
-func (s *EtcdScheduler) PeriodicPruner() {
-	for {
-		s.Prune()
-		time.Sleep(4 * s.chillFactor * time.Second)
-	}
-}
-
 func (s *EtcdScheduler) Prune() error {
 	s.mut.RLock()
 	defer s.mut.RUnlock()
@@ -509,7 +497,7 @@ func (s *EtcdScheduler) Prune() error {
 			}
 		}
 	} else {
-		log.Info("PeriodicPruner skipping due to Immutable scheduler state.")
+		log.Info("Prune skipping due to Immutable scheduler state.")
 	}
 	return nil
 }
@@ -597,14 +585,17 @@ func (s *EtcdScheduler) shouldLaunch() bool {
 
 // TODO(tyler) split this long function up!
 func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
-	if !s.shouldLaunch() {
-		log.Infoln("Skipping launch attempt for now.")
-		return
-	}
-
+	// Always ensure we've pruned any dead / unmanaged nodes before
+	// launching new ones, or we may overconfigure the ensemble such
+	// that it can not make progress if the next launch fails.
 	err := s.Prune()
 	if err != nil {
 		log.Errorf("Failed to remove stale cluster members: %s", err)
+		return
+	}
+
+	if !s.shouldLaunch() {
+		log.Infoln("Skipping launch attempt for now.")
 		return
 	}
 

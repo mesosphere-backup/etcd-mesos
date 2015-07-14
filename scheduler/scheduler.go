@@ -46,7 +46,7 @@ const (
 	cpusPerTask  = 1
 	memPerTask   = 256
 	diskPerTask  = 1024
-	portsPerTask = 2
+	portsPerTask = 3
 )
 
 // State represents the mutability of the scheduler.
@@ -641,6 +641,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	lowest := *resources.ports[0].Begin
 	rpcPort := lowest
 	clientPort := lowest + 1
+	httpPort := lowest + 2
 
 	s.highestInstanceID++
 
@@ -658,6 +659,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		Host:       *offer.Hostname,
 		RPCPort:    rpcPort,
 		ClientPort: clientPort,
+		HTTPPort:   httpPort,
 		Type:       clusterType,
 		SlaveID:    offer.GetSlaveId().GetValue(),
 	}
@@ -677,6 +679,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	}
 
 	configSummary := node.String()
+	log.Errorf("configSummary: %s", configSummary)
 
 	taskID := &mesos.TaskID{Value: &configSummary}
 
@@ -692,7 +695,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 			util.NewScalarResource("mem", memPerTask),
 			util.NewScalarResource("disk", diskPerTask),
 			util.NewRangesResource("ports", []*mesos.Value_Range{
-				util.NewValueRange(uint64(rpcPort), uint64(clientPort)),
+				util.NewValueRange(uint64(rpcPort), uint64(httpPort)),
 			}),
 		},
 	}

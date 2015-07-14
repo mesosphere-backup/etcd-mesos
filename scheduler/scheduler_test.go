@@ -94,15 +94,15 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 
 	for _, taskStatus := range []*mesos.TaskStatus{
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-1 localhost 0 0"),
+			util.NewTaskID("etcd-1 localhost 0 0 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-2 localhost 0 0"),
+			util.NewTaskID("etcd-2 localhost 0 0 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-3 localhost 0 0"),
+			util.NewTaskID("etcd-3 localhost 0 0 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 	} {
@@ -175,11 +175,11 @@ func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 
 	for _, taskStatus := range []*mesos.TaskStatus{
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-1 localhost 0 "+strconv.Itoa(int(port1))),
+			util.NewTaskID("etcd-1 localhost 0 "+strconv.Itoa(int(port1))+" 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-2 localhost 0 "+strconv.Itoa(int(port2))),
+			util.NewTaskID("etcd-2 localhost 0 "+strconv.Itoa(int(port2))+" 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 	} {
@@ -200,7 +200,7 @@ func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 					util.NewScalarResource("mem", memPerTask),
 					util.NewScalarResource("disk", diskPerTask),
 					util.NewRangesResource("ports", []*mesos.Value_Range{
-						util.NewValueRange(uint64(0), uint64(1)),
+						util.NewValueRange(uint64(0), uint64(2)),
 					}),
 				},
 			},
@@ -240,19 +240,19 @@ func TestScheduler(t *gotesting.T) {
 	testScheduler.state = Mutable
 
 	taskStatus_task_starting := util.NewTaskStatus(
-		util.NewTaskID("etcd-1 localhost 1 1"),
+		util.NewTaskID("etcd-1 localhost 1 1 1"),
 		mesos.TaskState_TASK_RUNNING,
 	)
 	testScheduler.StatusUpdate(mockdriver, taskStatus_task_starting)
 
 	taskStatus_task_running := util.NewTaskStatus(
-		util.NewTaskID("etcd-1 localhost 1 1"),
+		util.NewTaskID("etcd-1 localhost 1 1 1"),
 		mesos.TaskState_TASK_RUNNING,
 	)
 	testScheduler.StatusUpdate(mockdriver, taskStatus_task_running)
 
 	taskStatus_task_failed := util.NewTaskStatus(
-		util.NewTaskID("etcd-1 localhost 1 1"),
+		util.NewTaskID("etcd-1 localhost 1 1 1"),
 		mesos.TaskState_TASK_FAILED,
 	)
 	testScheduler.StatusUpdate(mockdriver, taskStatus_task_failed)

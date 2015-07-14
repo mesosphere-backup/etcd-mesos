@@ -560,6 +560,12 @@ func (s *EtcdScheduler) shouldLaunch() bool {
 		return false
 	}
 
+	if len(s.pending) != 0 {
+		log.Infoln("Waiting on pending task to fail or submit status. " +
+			"Not launching until we hear back.")
+		return false
+	}
+
 	log.V(2).Infof("running: %+v", s.running)
 	if len(s.running) >= s.desiredInstanceCount {
 		log.V(2).Infoln("Already running enough tasks.")

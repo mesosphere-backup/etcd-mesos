@@ -34,11 +34,12 @@ func TestNode_Parse(t *testing.T) {
 		{"a", nil, ErrUnmarshal},
 		{"a b", nil, ErrUnmarshal},
 		{"a b c", nil, ErrUnmarshal},
-		{"a b 1 2 3", nil, ErrUnmarshal},
+		{"a b 1 2", nil, ErrUnmarshal},
+		{"a b 1 2 3 4", nil, ErrUnmarshal},
 		{"a b c d", nil, ErrUnmarshal},
 		{"a b c 1", nil, ErrUnmarshal},
 		{"a b 1 d", nil, ErrUnmarshal},
-		{"a b 1 2", &Node{Name: "a", Host: "b", RPCPort: 1, ClientPort: 2}, nil},
+		{"a b 1 2 3", &Node{Name: "a", Host: "b", RPCPort: 1, ClientPort: 2, HTTPPort: 3}, nil},
 	} {
 		if n, err := Parse(tt.text); !reflect.DeepEqual(err, tt.err) {
 			t.Errorf("test #%d: got err: %v, want: %v", i, err, tt.err)
@@ -53,12 +54,13 @@ func TestNode_String(t *testing.T) {
 		Node
 		want string
 	}{
-		{Node{}, "  0 0"},
-		{Node{Name: "a"}, "a  0 0"},
-		{Node{Host: "b"}, " b 0 0"},
-		{Node{RPCPort: 1}, "  1 0"},
-		{Node{ClientPort: 1}, "  0 1"},
-		{Node{Name: "a", Host: "b", RPCPort: 1, ClientPort: 2}, "a b 1 2"},
+		{Node{}, "  0 0 0"},
+		{Node{Name: "a"}, "a  0 0 0"},
+		{Node{Host: "b"}, " b 0 0 0"},
+		{Node{RPCPort: 1}, "  1 0 0"},
+		{Node{ClientPort: 1}, "  0 1 0"},
+		{Node{HTTPPort: 1}, "  0 0 1"},
+		{Node{Name: "a", Host: "b", RPCPort: 1, ClientPort: 2, HTTPPort: 3}, "a b 1 2 3"},
 	} {
 		if got := tt.String(); got != tt.want {
 			t.Errorf("test #%d: got : %s, want: %s", i, got, tt.want)

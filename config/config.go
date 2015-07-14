@@ -32,6 +32,7 @@ type Node struct {
 	Host       string `json:"host"`
 	RPCPort    uint64 `json:"rpcPort"`
 	ClientPort uint64 `json:"clientPort"`
+	HTTPPort   uint64 `json:"httpPort"`
 	Type       string `json:"type"`
 	SlaveID    string `json:"slaveID"`
 }
@@ -42,7 +43,7 @@ var ErrUnmarshal = errors.New("config: unmarshaling failed")
 // Parse attempts to deserialize a config.Node from a byte array.
 func Parse(text string) (*Node, error) {
 	fs := strings.Fields(string(text))
-	if len(fs) != 4 {
+	if len(fs) != 5 {
 		return nil, ErrUnmarshal
 	}
 	n := &Node{Name: fs[0], Host: fs[1]}
@@ -52,6 +53,8 @@ func Parse(text string) (*Node, error) {
 		return nil, ErrUnmarshal
 	} else if n.ClientPort, err = strconv.ParseUint(fs[3], 10, 64); err != nil {
 		return nil, ErrUnmarshal
+	} else if n.HTTPPort, err = strconv.ParseUint(fs[4], 10, 64); err != nil {
+		return nil, ErrUnmarshal
 	}
 
 	return n, nil
@@ -60,5 +63,6 @@ func Parse(text string) (*Node, error) {
 // String implements the fmt.Stringer interface, returning a space separated
 // string representation of a Node.
 func (n Node) String() string {
-	return fmt.Sprintf("%s %s %d %d", n.Name, n.Host, n.RPCPort, n.ClientPort)
+	return fmt.Sprintf(
+		"%s %s %d %d %d", n.Name, n.Host, n.RPCPort, n.ClientPort, n.HTTPPort)
 }

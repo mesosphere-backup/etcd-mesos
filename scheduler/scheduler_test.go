@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mesosphere/etcd-mesos/config"
+	"github.com/mesosphere/etcd-mesos/rpc"
 	emtesting "github.com/mesosphere/etcd-mesos/testing"
 )
 
@@ -56,6 +57,22 @@ func TestStartup(t *gotesting.T) {
 		"etcd-1": nil,
 		"etcd-2": nil,
 	}
+	testScheduler.stateFunc = func(url string) (*rpc.MasterState, error) {
+		return &rpc.MasterState{
+			Frameworks: []rpc.Framework{
+				{
+					Tasks: []rpc.Task{
+						{
+							ID: "etcd-1",
+						},
+						{
+							ID: "etcd-2",
+						},
+					},
+				},
+			},
+		}, nil
+	}
 
 	// On registration, ReconcileTasks should be called.
 	mockdriver.On(
@@ -81,9 +98,29 @@ func TestStartup(t *gotesting.T) {
 
 func TestReconciliationOnStartup(t *gotesting.T) {
 	testScheduler := NewEtcdScheduler(3, 0, []*mesos.CommandInfo_URI{}, false)
+	testScheduler.masterInfo = util.NewMasterInfo("master-1", 0, 0)
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
 		scheduler:       testScheduler,
+	}
+	testScheduler.stateFunc = func(url string) (*rpc.MasterState, error) {
+		return &rpc.MasterState{
+			Frameworks: []rpc.Framework{
+				{
+					Tasks: []rpc.Task{
+						{
+							ID: "etcd-1",
+						},
+						{
+							ID: "etcd-2",
+						},
+						{
+							ID: "etcd-3",
+						},
+					},
+				},
+			},
+		}, nil
 	}
 
 	// Valid reconciled tasks should be added to the running list.
@@ -123,6 +160,7 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 
 func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 	testScheduler := NewEtcdScheduler(3, 0, []*mesos.CommandInfo_URI{}, false)
+	testScheduler.masterInfo = util.NewMasterInfo("master-1", 0, 0)
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
 		scheduler:       testScheduler,

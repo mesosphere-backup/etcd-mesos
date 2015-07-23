@@ -56,7 +56,7 @@ func main() {
 	taskCount :=
 		flag.Int("task-count", 5, "Total task count to run")
 	artifactPort :=
-		flag.Int("artifactPort", 12300, "Binding port for artifact server")
+		flag.Int("artifact-port", 12300, "Binding port for artifact server")
 	failoverTimeoutSeconds :=
 		flag.Float64("failover-timeout-seconds", 60*60*24*7, "Mesos framework failover timeout in seconds")
 	executorPath :=
@@ -70,15 +70,15 @@ func main() {
 	master :=
 		flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
 	clusterName :=
-		flag.String("clusterName", "default", "Unique name of this etcd cluster")
+		flag.String("cluster-name", "default", "Unique name of this etcd cluster")
 	mesosAuthPrincipal :=
-		flag.String("mesos_authentication_principal", "", "Mesos authentication principal")
+		flag.String("mesos-authentication-principal", "", "Mesos authentication principal")
 	mesosAuthSecretFile :=
-		flag.String("mesos_authentication_secret_file", "", "Mesos authentication secret file")
+		flag.String("mesos-authentication-secret-file", "", "Mesos authentication secret file")
 	zkConnect :=
 		flag.String("zk-framework-persist", "", "Zookeeper URI of the form zk://host1:port1,host2:port2/chroot/path")
 	authProvider :=
-		flag.String("mesos_authentication_provider", sasl.ProviderName,
+		flag.String("mesos-authentication-provider", sasl.ProviderName,
 			fmt.Sprintf("Authentication provider to use, default is SASL that supports mechanisms: %+v", mech.ListSupported()))
 	flag.Parse()
 

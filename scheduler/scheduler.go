@@ -642,8 +642,6 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	rpcPort := lowest
 	clientPort := lowest + 1
 
-	s.highestInstanceID++
-
 	s.mut.Lock()
 	var clusterType string
 	if len(s.running) == 0 {
@@ -652,7 +650,9 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		clusterType = "existing"
 	}
 
+	s.highestInstanceID++
 	name := "etcd-" + strconv.FormatInt(s.highestInstanceID, 10)
+
 	node := &config.Node{
 		Name:       name,
 		Host:       *offer.Hostname,
@@ -683,7 +683,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	executor := s.newExecutorInfo(node, s.executorUris)
 	task := &mesos.TaskInfo{
 		Data:     serializedNodes,
-		Name:     proto.String(name),
+		Name:     proto.String("etcd-server"),
 		TaskId:   taskID,
 		SlaveId:  offer.SlaveId,
 		Executor: executor,

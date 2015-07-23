@@ -611,6 +611,8 @@ func (s *EtcdScheduler) shouldLaunch() bool {
 		return false
 	}
 
+	// TODO(tyler) verify that we will always hear back after putting something
+	// into pending, otherwise this will create a locked scheduler.
 	if len(s.pending) != 0 {
 		log.Infoln("Waiting on pending task to fail or submit status. " +
 			"Not launching until we hear back.")
@@ -739,7 +741,6 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	}
 
 	configSummary := node.String()
-	log.Errorf("configSummary: %s", configSummary)
 
 	taskID := &mesos.TaskID{Value: &configSummary}
 

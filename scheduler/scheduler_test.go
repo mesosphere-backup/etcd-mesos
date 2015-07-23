@@ -21,6 +21,7 @@ package scheduler
 import (
 	"strconv"
 	gotesting "testing"
+	"time"
 
 	"github.com/coreos/etcd/etcdserver/etcdhttp/httptypes"
 	"github.com/gogo/protobuf/proto"
@@ -75,10 +76,12 @@ func TestStartup(t *gotesting.T) {
 	}
 
 	// On registration, ReconcileTasks should be called.
+	mockdriver.Lock()
 	mockdriver.On(
 		"ReconcileTasks",
 		[]*mesos.TaskStatus{},
 	).Return(mesos.Status_DRIVER_RUNNING, nil).Once()
+	mockdriver.Unlock()
 
 	testScheduler.Registered(
 		mockdriver,
@@ -93,6 +96,10 @@ func TestStartup(t *gotesting.T) {
 	assert.Equal(t, 0, len(testScheduler.running),
 		"Scheduler's running list should be cleared on registration, "+
 			"to be populated by ReconcileTasks.")
+
+	time.Sleep(50 * time.Millisecond)
+	mockdriver.Lock()
+	defer mockdriver.Unlock()
 	mockdriver.AssertExpectations(t)
 }
 
@@ -124,11 +131,6 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 	}
 
 	// Valid reconciled tasks should be added to the running list.
-	mockdriver.On(
-		"ReconcileTasks",
-		[]*mesos.TaskStatus{},
-	).Return(mesos.Status_DRIVER_RUNNING, nil).Once()
-
 	for _, taskStatus := range []*mesos.TaskStatus{
 		util.NewTaskStatus(
 			util.NewTaskID("etcd-1 localhost 0 0 0"),
@@ -146,15 +148,26 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 		mockdriver.runningStatuses <- taskStatus
 	}
 
+	mockdriver.Lock()
+	mockdriver.On(
+		"ReconcileTasks",
+		[]*mesos.TaskStatus{},
+	).Return(mesos.Status_DRIVER_RUNNING, nil).Times(500000)
+	mockdriver.Unlock()
+
 	testScheduler.Registered(
 		mockdriver,
 		util.NewFrameworkID("framework-1"),
 		util.NewMasterInfo("master-1", 0, 0),
 	)
 
+	time.Sleep(time.Second)
+
 	assert.Equal(t, 3, len(testScheduler.running),
 		"Scheduler should reconcile tasks properly.")
 
+	mockdriver.Lock()
+	defer mockdriver.Unlock()
 	mockdriver.AssertExpectations(t)
 }
 

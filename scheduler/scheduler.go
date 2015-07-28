@@ -20,6 +20,7 @@ package scheduler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -46,7 +47,7 @@ const (
 	cpusPerTask  = 1
 	memPerTask   = 256
 	diskPerTask  = 1024
-	portsPerTask = 2
+	portsPerTask = 3
 )
 
 // State represents the mutability of the scheduler.
@@ -79,8 +80,11 @@ type EtcdScheduler struct {
 	desiredInstanceCount   int
 	healthCheck            func(map[string]*config.Node) error
 	shutdown               func()
+	stateFunc              func(string) (*rpc.MasterState, error)
 	mut                    sync.RWMutex
 	state                  State
+	frameworkID            *mesos.FrameworkID
+	masterInfo             *mesos.MasterInfo
 	pending                map[string]struct{}
 	running                map[string]*config.Node
 	highestInstanceID      int64
@@ -121,6 +125,7 @@ func NewEtcdScheduler(
 		),
 		healthCheck:            rpc.HealthCheck,
 		shutdown:               func() { os.Exit(1) },
+		stateFunc:              rpc.GetState,
 		singleInstancePerSlave: singleInstancePerSlave,
 	}
 }
@@ -133,6 +138,9 @@ func (s *EtcdScheduler) Registered(
 	masterInfo *mesos.MasterInfo,
 ) {
 	log.Infoln("Framework Registered with Master ", masterInfo)
+	s.mut.Lock()
+	s.frameworkID = frameworkID
+	s.mut.Unlock()
 
 	if s.ZkConnect != "" {
 		err := rpc.PersistFrameworkID(
@@ -150,7 +158,8 @@ func (s *EtcdScheduler) Registered(
 			log.Warning("Framework ID is already persisted for this cluster.")
 		}
 	}
-	s.Initialize(driver)
+
+	s.Initialize(driver, masterInfo)
 }
 
 func (s *EtcdScheduler) Reregistered(
@@ -158,8 +167,7 @@ func (s *EtcdScheduler) Reregistered(
 	masterInfo *mesos.MasterInfo,
 ) {
 	log.Infoln("Framework Reregistered with Master ", masterInfo)
-
-	s.Initialize(driver)
+	s.Initialize(driver, masterInfo)
 }
 
 func (s *EtcdScheduler) Disconnected(scheduler.SchedulerDriver) {
@@ -290,12 +298,7 @@ func (s *EtcdScheduler) StatusUpdate(
 		// split brain.
 		s.PumpTheBrakes()
 		delete(s.running, node.Name)
-		go func() {
-			if err := rpc.RemoveInstance(s.RunningCopy(), node.Name); err != nil {
-				log.Errorf("Failed to remove instance: %s", err)
-			}
-			s.QueueLaunchAttempt()
-		}()
+		s.QueueLaunchAttempt()
 	case mesos.TaskState_TASK_RUNNING:
 		_, present := s.running[node.Name]
 		if !present {
@@ -399,16 +402,20 @@ func (s *EtcdScheduler) RunningCopy() map[string]*config.Node {
 	return runningCopy
 }
 
-func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
+func (s *EtcdScheduler) Initialize(
+	driver scheduler.SchedulerDriver,
+	masterInfo *mesos.MasterInfo,
+) {
 	// Reset mutable state
 	s.mut.Lock()
 	s.running = map[string]*config.Node{}
+	s.masterInfo = masterInfo
 	s.mut.Unlock()
 
-	// Pump the brakes to allow some time for reconciliation.
-	s.PumpTheBrakes()
-	s.PumpTheBrakes()
+	go s.attemptMasterSync(driver)
+}
 
+func (s *EtcdScheduler) attemptMasterSync(driver scheduler.SchedulerDriver) {
 	// Request that the master send us TaskStatus for live tasks.
 	backoff := 1
 	for retries := 0; retries < 5; retries++ {
@@ -417,27 +424,78 @@ func (s *EtcdScheduler) Initialize(driver scheduler.SchedulerDriver) {
 			log.Errorf("Error while calling ReconcileTasks: %s", err)
 		} else {
 			// We want to allow some time for reconciled updates to arrive.
-			// This happens in a goroutine because we don't want to tie up
-			// the goroutine that could be responsible for handling
-			// status updates that come in after the above call to
-			// ReconcileTasks.
-			go func() {
-				time.Sleep(2 * s.chillFactor * time.Second)
+			err := s.waitForMasterSync()
+			if err != nil {
+				log.Error(err)
+			} else {
 				s.mut.Lock()
 				log.Info("Scheduler transitioning to Mutable state.")
 				s.state = Mutable
 				s.mut.Unlock()
-			}()
-			return
+				return
+			}
 		}
 		time.Sleep(time.Duration(backoff) * time.Second)
 		backoff = int(math.Min(float64(backoff<<1), 8))
 	}
-	log.Error("Failed to call ReconcileTasks!  " +
+	log.Error("Failed to synchronize with master!  " +
 		"It is dangerous to continue at this point.  Dying.")
 	if s.shutdown != nil {
 		s.shutdown()
 	}
+
+}
+
+func (s *EtcdScheduler) isInSync(masterState *rpc.MasterState) bool {
+	if len(masterState.Frameworks) == 0 {
+		log.Error("Master state.json contains no frameworks!")
+		return false
+	}
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	for _, fw := range masterState.Frameworks {
+		if fw.ID == s.frameworkID.GetValue() {
+			if len(fw.Tasks) == len(s.running) {
+				return true
+			} else {
+				return false
+			}
+		}
+	}
+	return false
+}
+
+func (s *EtcdScheduler) waitForMasterSync() error {
+	backoff := 1
+	for retries := 0; retries < 5; retries++ {
+		log.Info("Trying to sync with master.")
+
+		if s.masterInfo == nil || s.masterInfo.Hostname == nil {
+			return errors.New("No master info.")
+		}
+		s.mut.RLock()
+		host := *s.masterInfo.Hostname
+		port := strconv.Itoa(int(*s.masterInfo.Port))
+		s.mut.RUnlock()
+
+		if s.stateFunc == nil {
+			return errors.New("No state function.")
+		}
+		masterState, err := s.stateFunc("http://" + host + ":" + port)
+		if err != nil {
+			log.Errorf("Unable to get master state.json: %v", err)
+		} else {
+			if s.isInSync(masterState) {
+				log.Info("Scheduler synchronized with master.")
+				return nil
+			} else {
+				log.Warning("Scheduler not yet in sync with master.")
+			}
+		}
+		time.Sleep(time.Duration(backoff) * time.Second)
+		backoff = int(math.Min(float64(backoff<<1), 8))
+	}
+	return errors.New("Unable to sync with master.")
 }
 
 func (s *EtcdScheduler) QueueLaunchAttempt() {
@@ -476,13 +534,6 @@ func (s *EtcdScheduler) PeriodicLaunchRequestor() {
 	}
 }
 
-func (s *EtcdScheduler) PeriodicPruner() {
-	for {
-		s.Prune()
-		time.Sleep(4 * s.chillFactor * time.Second)
-	}
-}
-
 func (s *EtcdScheduler) Prune() error {
 	s.mut.RLock()
 	defer s.mut.RUnlock()
@@ -509,7 +560,7 @@ func (s *EtcdScheduler) Prune() error {
 			}
 		}
 	} else {
-		log.Info("PeriodicPruner skipping due to Immutable scheduler state.")
+		log.Info("Prune skipping due to Immutable scheduler state.")
 	}
 	return nil
 }
@@ -560,6 +611,14 @@ func (s *EtcdScheduler) shouldLaunch() bool {
 		return false
 	}
 
+	// TODO(tyler) verify that we will always hear back after putting something
+	// into pending, otherwise this will create a locked scheduler.
+	if len(s.pending) != 0 {
+		log.Infoln("Waiting on pending task to fail or submit status. " +
+			"Not launching until we hear back.")
+		return false
+	}
+
 	log.V(2).Infof("running: %+v", s.running)
 	if len(s.running) >= s.desiredInstanceCount {
 		log.V(2).Infoln("Already running enough tasks.")
@@ -591,14 +650,17 @@ func (s *EtcdScheduler) shouldLaunch() bool {
 
 // TODO(tyler) split this long function up!
 func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
-	if !s.shouldLaunch() {
-		log.Infoln("Skipping launch attempt for now.")
-		return
-	}
-
+	// Always ensure we've pruned any dead / unmanaged nodes before
+	// launching new ones, or we may overconfigure the ensemble such
+	// that it can not make progress if the next launch fails.
 	err := s.Prune()
 	if err != nil {
 		log.Errorf("Failed to remove stale cluster members: %s", err)
+		return
+	}
+
+	if !s.shouldLaunch() {
+		log.Infoln("Skipping launch attempt for now.")
 		return
 	}
 
@@ -641,6 +703,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	lowest := *resources.ports[0].Begin
 	rpcPort := lowest
 	clientPort := lowest + 1
+	httpPort := lowest + 2
 
 	s.mut.Lock()
 	var clusterType string
@@ -658,6 +721,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		Host:       *offer.Hostname,
 		RPCPort:    rpcPort,
 		ClientPort: clientPort,
+		HTTPPort:   httpPort,
 		Type:       clusterType,
 		SlaveID:    offer.GetSlaveId().GetValue(),
 	}
@@ -692,7 +756,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 			util.NewScalarResource("mem", memPerTask),
 			util.NewScalarResource("disk", diskPerTask),
 			util.NewRangesResource("ports", []*mesos.Value_Range{
-				util.NewValueRange(uint64(rpcPort), uint64(clientPort)),
+				util.NewValueRange(uint64(rpcPort), uint64(httpPort)),
 			}),
 		},
 	}
@@ -719,6 +783,22 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 			RefuseSeconds: proto.Float64(1),
 		},
 	)
+}
+
+func (s *EtcdScheduler) catastropheRecovery(driver scheduler.SchedulerDriver) error {
+	// for each node in running, attempt to reseed.  if successful, set running to [node]
+	// and kill all others.
+	// if none are successful, we need to attempt to restart from last external backup
+	return nil
+}
+
+func (s *EtcdScheduler) reseed(driver scheduler.SchedulerDriver) error {
+	// 1. restart node with --force-new-cluster
+	// 2. ensure it passes health check
+	// otherwise return err
+	// 3. ensure its member list only contains itself
+	// otherwise we're in a really messed up state
+	return nil
 }
 
 func parseOffer(offer *mesos.Offer) OfferResources {

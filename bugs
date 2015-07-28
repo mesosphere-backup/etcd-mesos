@@ -39,3 +39,6 @@ deadlock in offercache due to lock acquisition in a for loop
 
 scheduler does not bail out if the configured executor or etcd binaries are not present
   fixed
+
+if multiple tasks are launched concurerntly they will have split configurations
+  fixed

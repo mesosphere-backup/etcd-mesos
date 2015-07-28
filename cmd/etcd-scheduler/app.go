@@ -187,7 +187,6 @@ func main() {
 
 	go etcdScheduler.SerialLauncher(driver)
 	go etcdScheduler.PeriodicLaunchRequestor()
-	go etcdScheduler.PeriodicPruner()
 
 	if stat, err := driver.Run(); err != nil {
 		log.Infof("Framework stopped with status %s and error: %s",

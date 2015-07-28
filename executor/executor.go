@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -120,6 +121,13 @@ func (e *Executor) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
 		return
 	}
 
+	if len(running) == 0 {
+		log.Error("Received empty running nodes list. The first element is " +
+			"assumed to be our own configuration, so this is invalid.")
+		handleFailure(dv, ti)
+		return
+	}
+
 	cmd, err := command(running...)
 	if err != nil {
 		log.Errorf("Failed to create configuration for etcd: %v", err)
@@ -163,6 +171,9 @@ func (e *Executor) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
 			log.Infoln("Got error sending status update: ", err)
 		}
 
+		go snapshotter(running[0])
+		go http.ListenAndServe(fmt.Sprintf(":%d", running[0].HTTPPort), nil)
+
 		err = command.Wait()
 		if err != nil {
 			if exitError, ok := err.(*exec.ExitError); ok {
@@ -203,6 +214,10 @@ func handleFailure(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
 		log.Infoln("Failed to send final status update: ", err)
 	}
 	dv.Abort()
+}
+
+func snapshotter(config *config.Node) {
+
 }
 
 func (e *Executor) KillTask(_ executor.ExecutorDriver, t *mesos.TaskID) {

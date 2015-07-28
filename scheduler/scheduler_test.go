@@ -21,6 +21,7 @@ package scheduler
 import (
 	"strconv"
 	gotesting "testing"
+	"time"
 
 	"github.com/coreos/etcd/etcdserver/etcdhttp/httptypes"
 	"github.com/gogo/protobuf/proto"
@@ -29,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mesosphere/etcd-mesos/config"
+	"github.com/mesosphere/etcd-mesos/rpc"
 	emtesting "github.com/mesosphere/etcd-mesos/testing"
 )
 
@@ -56,17 +58,38 @@ func TestStartup(t *gotesting.T) {
 		"etcd-1": nil,
 		"etcd-2": nil,
 	}
+	testScheduler.stateFunc = func(url string) (*rpc.MasterState, error) {
+		return &rpc.MasterState{
+			Frameworks: []rpc.Framework{
+				{
+					Tasks: []rpc.Task{
+						{
+							ID: "etcd-1",
+						},
+						{
+							ID: "etcd-2",
+						},
+					},
+				},
+			},
+		}, nil
+	}
 
 	// On registration, ReconcileTasks should be called.
+	mockdriver.Lock()
 	mockdriver.On(
 		"ReconcileTasks",
 		[]*mesos.TaskStatus{},
 	).Return(mesos.Status_DRIVER_RUNNING, nil).Once()
+	mockdriver.Unlock()
+
+	masterInfo := util.NewMasterInfo("master-1", 0, 0)
+	masterInfo.Hostname = proto.String("test-host")
 
 	testScheduler.Registered(
 		mockdriver,
 		util.NewFrameworkID("framework-1"),
-		util.NewMasterInfo("master-1", 0, 0),
+		masterInfo,
 	)
 
 	assert.Equal(t, Immutable, testScheduler.state,
@@ -76,6 +99,10 @@ func TestStartup(t *gotesting.T) {
 	assert.Equal(t, 0, len(testScheduler.running),
 		"Scheduler's running list should be cleared on registration, "+
 			"to be populated by ReconcileTasks.")
+
+	time.Sleep(50 * time.Millisecond)
+	mockdriver.Lock()
+	defer mockdriver.Unlock()
 	mockdriver.AssertExpectations(t)
 }
 
@@ -85,36 +112,64 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
 		scheduler:       testScheduler,
 	}
+	testScheduler.stateFunc = func(url string) (*rpc.MasterState, error) {
+		return &rpc.MasterState{
+			Frameworks: []rpc.Framework{
+				{
+					Tasks: []rpc.Task{
+						{
+							ID: "etcd-1",
+						},
+						{
+							ID: "etcd-2",
+						},
+						{
+							ID: "etcd-3",
+						},
+					},
+				},
+			},
+		}, nil
+	}
 
 	// Valid reconciled tasks should be added to the running list.
-	mockdriver.On(
-		"ReconcileTasks",
-		[]*mesos.TaskStatus{},
-	).Return(mesos.Status_DRIVER_RUNNING, nil).Once()
-
 	for _, taskStatus := range []*mesos.TaskStatus{
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-1 localhost 0 0"),
+			util.NewTaskID("etcd-1 localhost 0 0 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-2 localhost 0 0"),
+			util.NewTaskID("etcd-2 localhost 0 0 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-3 localhost 0 0"),
+			util.NewTaskID("etcd-3 localhost 0 0 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 	} {
 		mockdriver.runningStatuses <- taskStatus
 	}
 
+	mockdriver.Lock()
+	mockdriver.On(
+		"ReconcileTasks",
+		[]*mesos.TaskStatus{},
+	).Return(mesos.Status_DRIVER_RUNNING, nil).Once()
+	mockdriver.Unlock()
+
+	masterInfo := util.NewMasterInfo("master-1", 0, 0)
+	masterInfo.Hostname = proto.String("test-host")
+
 	testScheduler.Registered(
 		mockdriver,
 		util.NewFrameworkID("framework-1"),
-		util.NewMasterInfo("master-1", 0, 0),
+		masterInfo,
 	)
 
+	time.Sleep(50 * time.Millisecond)
+
+	mockdriver.Lock()
+	defer mockdriver.Unlock()
 	assert.Equal(t, 3, len(testScheduler.running),
 		"Scheduler should reconcile tasks properly.")
 
@@ -123,6 +178,7 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 
 func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 	testScheduler := NewEtcdScheduler(3, 0, []*mesos.CommandInfo_URI{}, false)
+	testScheduler.masterInfo = util.NewMasterInfo("master-1", 0, 0)
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
 		scheduler:       testScheduler,
@@ -175,11 +231,11 @@ func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 
 	for _, taskStatus := range []*mesos.TaskStatus{
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-1 localhost 0 "+strconv.Itoa(int(port1))),
+			util.NewTaskID("etcd-1 localhost 0 "+strconv.Itoa(int(port1))+" 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 		util.NewTaskStatus(
-			util.NewTaskID("etcd-2 localhost 0 "+strconv.Itoa(int(port2))),
+			util.NewTaskID("etcd-2 localhost 0 "+strconv.Itoa(int(port2))+" 0"),
 			mesos.TaskState_TASK_RUNNING,
 		),
 	} {
@@ -200,7 +256,7 @@ func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 					util.NewScalarResource("mem", memPerTask),
 					util.NewScalarResource("disk", diskPerTask),
 					util.NewRangesResource("ports", []*mesos.Value_Range{
-						util.NewValueRange(uint64(0), uint64(1)),
+						util.NewValueRange(uint64(0), uint64(2)),
 					}),
 				},
 			},
@@ -240,19 +296,19 @@ func TestScheduler(t *gotesting.T) {
 	testScheduler.state = Mutable
 
 	taskStatus_task_starting := util.NewTaskStatus(
-		util.NewTaskID("etcd-1 localhost 1 1"),
+		util.NewTaskID("etcd-1 localhost 1 1 1"),
 		mesos.TaskState_TASK_RUNNING,
 	)
 	testScheduler.StatusUpdate(mockdriver, taskStatus_task_starting)
 
 	taskStatus_task_running := util.NewTaskStatus(
-		util.NewTaskID("etcd-1 localhost 1 1"),
+		util.NewTaskID("etcd-1 localhost 1 1 1"),
 		mesos.TaskState_TASK_RUNNING,
 	)
 	testScheduler.StatusUpdate(mockdriver, taskStatus_task_running)
 
 	taskStatus_task_failed := util.NewTaskStatus(
-		util.NewTaskID("etcd-1 localhost 1 1"),
+		util.NewTaskID("etcd-1 localhost 1 1 1"),
 		mesos.TaskState_TASK_FAILED,
 	)
 	testScheduler.StatusUpdate(mockdriver, taskStatus_task_failed)

@@ -32,7 +32,7 @@ func ParseZKURI(zkURI string) (servers []string, chroot string, err error) {
 	servers = []string{}
 
 	// this is to use the canonical zk://host1:ip,host2/zkChroot format
-	strippedZKConnect := strings.TrimLeft(zkURI, "zk://")
+	strippedZKConnect := strings.TrimPrefix(zkURI, "zk://")
 	parts := strings.Split(strippedZKConnect, "/")
 	if len(parts) == 2 {
 		if parts[1] == "" {

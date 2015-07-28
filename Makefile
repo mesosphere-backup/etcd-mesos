@@ -27,7 +27,7 @@ run-scheduler-with-zk:
 		-master="zk://localhost:2181/mesos" \
 		-task-count=3 \
 		-zk-framework-persist="zk://localhost:2181/etcd-mesos" \
-		-clusterName="t1"
+		-clusterName="t1" -v=2
 
 install:
 	go install ./cmd/...

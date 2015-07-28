@@ -158,6 +158,7 @@ func (s *EtcdScheduler) Registered(
 			log.Warning("Framework ID is already persisted for this cluster.")
 		}
 	}
+
 	s.Initialize(driver, masterInfo)
 }
 
@@ -166,7 +167,6 @@ func (s *EtcdScheduler) Reregistered(
 	masterInfo *mesos.MasterInfo,
 ) {
 	log.Infoln("Framework Reregistered with Master ", masterInfo)
-
 	s.Initialize(driver, masterInfo)
 }
 

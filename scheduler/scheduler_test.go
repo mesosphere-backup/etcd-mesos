@@ -83,10 +83,13 @@ func TestStartup(t *gotesting.T) {
 	).Return(mesos.Status_DRIVER_RUNNING, nil).Once()
 	mockdriver.Unlock()
 
+	masterInfo := util.NewMasterInfo("master-1", 0, 0)
+	masterInfo.Hostname = proto.String("test-host")
+
 	testScheduler.Registered(
 		mockdriver,
 		util.NewFrameworkID("framework-1"),
-		util.NewMasterInfo("master-1", 0, 0),
+		masterInfo,
 	)
 
 	assert.Equal(t, Immutable, testScheduler.state,
@@ -105,7 +108,6 @@ func TestStartup(t *gotesting.T) {
 
 func TestReconciliationOnStartup(t *gotesting.T) {
 	testScheduler := NewEtcdScheduler(3, 0, []*mesos.CommandInfo_URI{}, false)
-	testScheduler.masterInfo = util.NewMasterInfo("master-1", 0, 0)
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
 		scheduler:       testScheduler,
@@ -152,22 +154,25 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 	mockdriver.On(
 		"ReconcileTasks",
 		[]*mesos.TaskStatus{},
-	).Return(mesos.Status_DRIVER_RUNNING, nil).Times(500000)
+	).Return(mesos.Status_DRIVER_RUNNING, nil).Once()
 	mockdriver.Unlock()
+
+	masterInfo := util.NewMasterInfo("master-1", 0, 0)
+	masterInfo.Hostname = proto.String("test-host")
 
 	testScheduler.Registered(
 		mockdriver,
 		util.NewFrameworkID("framework-1"),
-		util.NewMasterInfo("master-1", 0, 0),
+		masterInfo,
 	)
 
-	time.Sleep(time.Second)
-
-	assert.Equal(t, 3, len(testScheduler.running),
-		"Scheduler should reconcile tasks properly.")
+	time.Sleep(50 * time.Millisecond)
 
 	mockdriver.Lock()
 	defer mockdriver.Unlock()
+	assert.Equal(t, 3, len(testScheduler.running),
+		"Scheduler should reconcile tasks properly.")
+
 	mockdriver.AssertExpectations(t)
 }
 

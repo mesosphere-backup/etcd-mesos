@@ -35,9 +35,10 @@ import (
 
 func HealthCheck(running map[string]*config.Node) error {
 	// TODO(tyler) invariant: all nodes have same leader
-	// TODO(tyler) invariant: raft index increases
 	// TODO(tyler) retry with exponential backoff
-	//healthy, unhealthy = []config.Node{}, []config.Node{}
+	if len(running) == 0 {
+		return nil
+	}
 	var validEndpoint string
 	for _, args := range running {
 		url := fmt.Sprintf(
@@ -48,14 +49,14 @@ func HealthCheck(running map[string]*config.Node) error {
 		resp, err := http.Get(url + "/v2/stats/leader")
 		if err != nil {
 			log.Errorf("Could not query %s for leader stats: %+v", url, err)
-			return errors.ErrEtcdEndpoint
+			continue
 		}
 		defer resp.Body.Close()
 
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			log.Errorf("Could not query %s for leader stats", url)
-			return errors.ErrEtcdEndpoint
+			continue
 		}
 		log.Info("Leader stats response:", string(body))
 		ls := &etcdstats.LeaderStats{}
@@ -63,7 +64,7 @@ func HealthCheck(running map[string]*config.Node) error {
 		if err != nil {
 			log.Errorf("received invalid LeaderStats from endpoint %s:%s",
 				url, string(body))
-			return errors.ErrEtcdEndpoint
+			continue
 		}
 		validEndpoint = url
 		break

@@ -92,7 +92,9 @@ type EtcdScheduler struct {
 	offerCache             *offercache.OfferCache
 	launchChan             chan struct{}
 	pauseChan              chan struct{}
-	chillFactor            time.Duration
+	chillSeconds           time.Duration
+	reseedTimeout          time.Duration
+	livelockWindow         *time.Time
 }
 
 type OfferResources struct {
@@ -104,7 +106,8 @@ type OfferResources struct {
 
 func NewEtcdScheduler(
 	desiredInstanceCount int,
-	chillFactor int,
+	chillSeconds int,
+	reseedTimeout int,
 	executorUris []*mesos.CommandInfo_URI,
 	singleInstancePerSlave bool,
 ) *EtcdScheduler {
@@ -115,7 +118,8 @@ func NewEtcdScheduler(
 		highestInstanceID:    time.Now().Unix(),
 		executorUris:         executorUris,
 		ZkServers:            []string{},
-		chillFactor:          time.Duration(chillFactor),
+		chillSeconds:         time.Duration(chillSeconds),
+		reseedTimeout:        time.Second * time.Duration(reseedTimeout),
 		desiredInstanceCount: desiredInstanceCount,
 		launchChan:           make(chan struct{}, 2048),
 		pauseChan:            make(chan struct{}, 2048),
@@ -247,7 +251,7 @@ func (s *EtcdScheduler) ResourceOffers(
 			// golang for-loop variable reuse necessitates a copy here.
 			offerCpy := *offer
 			go func() {
-				time.Sleep(s.chillFactor / 2 * time.Second)
+				time.Sleep(s.chillSeconds / 2 * time.Second)
 				// Decline the offer if we don't try to take it after a few seconds.
 				if s.offerCache.Rescind(offerCpy.Id) {
 					s.decline(driver, &offerCpy)
@@ -385,7 +389,7 @@ func (s *EtcdScheduler) decline(
 	driver.DeclineOffer(
 		offer.Id,
 		&mesos.Filters{
-			RefuseSeconds: proto.Float64(float64(5 * s.chillFactor)),
+			RefuseSeconds: proto.Float64(float64(5 * s.chillSeconds)),
 		},
 	)
 }
@@ -530,7 +534,7 @@ func (s *EtcdScheduler) PeriodicLaunchRequestor() {
 				"Immutable scheduler state.")
 		}
 		s.mut.RUnlock()
-		time.Sleep(5 * s.chillFactor * time.Second)
+		time.Sleep(5 * s.chillSeconds * time.Second)
 	}
 }
 
@@ -576,8 +580,8 @@ func (s *EtcdScheduler) SerialLauncher(driver scheduler.SchedulerDriver) {
 			select {
 			case <-s.pauseChan:
 				log.V(2).Infof("SerialLauncher sleeping for %d seconds "+
-					"after receiving pause signal.", s.chillFactor)
-				time.Sleep(s.chillFactor * time.Second)
+					"after receiving pause signal.", s.chillSeconds)
+				time.Sleep(s.chillSeconds * time.Second)
 			default:
 				goto FCFSPauseOrLaunch
 			}
@@ -592,17 +596,17 @@ func (s *EtcdScheduler) SerialLauncher(driver scheduler.SchedulerDriver) {
 
 			// Wait some time between launches to allow a cluster to settle.
 			log.V(2).Infof("SerialLauncher sleeping for %d seconds after "+
-				"launch attempt.", s.chillFactor)
-			time.Sleep(s.chillFactor * time.Second)
+				"launch attempt.", s.chillSeconds)
+			time.Sleep(s.chillSeconds * time.Second)
 		case <-s.pauseChan:
 			log.V(2).Infof("SerialLauncher sleeping for %d seconds "+
-				"after receiving pause signal.", s.chillFactor)
-			time.Sleep(s.chillFactor * time.Second)
+				"after receiving pause signal.", s.chillSeconds)
+			time.Sleep(s.chillSeconds * time.Second)
 		}
 	}
 }
 
-func (s *EtcdScheduler) shouldLaunch() bool {
+func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 	s.mut.RLock()
 	defer s.mut.RUnlock()
 
@@ -638,13 +642,27 @@ func (s *EtcdScheduler) shouldLaunch() bool {
 			"Must deconfigure any dead nodes first or we may risk livelock.")
 		return false
 	}
+
 	err = s.healthCheck(s.running)
-	if err != nil && len(s.running) != 0 {
+	if err != nil {
+		// If we have been unhealthy for reseedTimeout seconds, it's time to reseed.
+		if s.livelockWindow != nil {
+			if time.Since(*s.livelockWindow) > s.reseedTimeout {
+				s.reseed(driver)
+				return false
+			}
+		} else {
+			now := time.Now()
+			s.livelockWindow = &now
+		}
+
 		log.Errorf("Failed health check, rescheduling "+
 			"launch attempt for later: %s", err)
 		return false
 	}
 
+	// reset livelock window because we're healthy
+	s.livelockWindow = nil
 	return true
 }
 
@@ -659,7 +677,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		return
 	}
 
-	if !s.shouldLaunch() {
+	if !s.shouldLaunch(driver) {
 		log.Infoln("Skipping launch attempt for now.")
 		return
 	}
@@ -692,7 +710,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	}
 
 	// Do this again because BlockingPop may have taken a long time.
-	if !s.shouldLaunch() {
+	if !s.shouldLaunch(driver) {
 		log.Infoln("Skipping launch attempt for now.")
 		s.decline(driver, offer)
 		return

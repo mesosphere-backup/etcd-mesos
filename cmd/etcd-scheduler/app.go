@@ -54,7 +54,9 @@ func main() {
 	singleInstancePerSlave :=
 		flag.Bool("single-instance-per-slave", true, "Only allow one etcd instance to be started per slave")
 	taskCount :=
-		flag.Int("task-count", 5, "Total task count to run")
+		flag.Int("cluster-size", 5, "Total task count to run")
+	reseedTimeout :=
+		flag.Int("reseed-timeout", 240, "Seconds of etcd livelock to wait for before attempting a cluster re-seed")
 	artifactPort :=
 		flag.Int("artifact-port", 12300, "Binding port for artifact server")
 	failoverTimeoutSeconds :=
@@ -113,6 +115,7 @@ func main() {
 	etcdScheduler := etcdscheduler.NewEtcdScheduler(
 		*taskCount,
 		chillFactor,
+		*reseedTimeout,
 		executorUris,
 		*singleInstancePerSlave,
 	)

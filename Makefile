@@ -26,7 +26,7 @@ run-scheduler-with-zk:
 	go run -race cmd/etcd-scheduler/app.go -logtostderr=true \
 		-master="zk://localhost:2181/mesos" \
 		-cluster-name="t1" \
-		-cluster-size=3 \
+		-cluster-size=5 \
 		-zk-framework-persist="zk://localhost:2181/etcd-mesos" \
 		-v=2
 

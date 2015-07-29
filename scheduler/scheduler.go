@@ -82,6 +82,7 @@ type EtcdScheduler struct {
 	shutdown               func()
 	stateFunc              func(string) (*rpc.MasterState, error)
 	mut                    sync.RWMutex
+	reseedMut              sync.Mutex
 	state                  State
 	frameworkID            *mesos.FrameworkID
 	masterInfo             *mesos.MasterInfo
@@ -648,7 +649,11 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 		// If we have been unhealthy for reseedTimeout seconds, it's time to reseed.
 		if s.livelockWindow != nil {
 			if time.Since(*s.livelockWindow) > s.reseedTimeout {
-				s.reseed(driver)
+				log.Errorf("Cluster has been livelocked for longer than %d seconds! "+
+					"Initiating reseed...", s.reseedTimeout/time.Second)
+				// Set scheduler to immutable so that shouldLaunch bails out almost
+				// instantly, preventing multiple reseed events from occurring concurrently
+				go s.reseed(driver)
 				return false
 			}
 		} else {
@@ -803,19 +808,31 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	)
 }
 
-func (s *EtcdScheduler) catastropheRecovery(driver scheduler.SchedulerDriver) error {
-	// for each node in running, attempt to reseed.  if successful, set running to [node]
-	// and kill all others.
-	// if none are successful, we need to attempt to restart from last external backup
-	return nil
-}
-
+// This should never run concurrently.
 func (s *EtcdScheduler) reseed(driver scheduler.SchedulerDriver) error {
-	// 1. restart node with --force-new-cluster
-	// 2. ensure it passes health check
-	// otherwise return err
-	// 3. ensure its member list only contains itself
-	// otherwise we're in a really messed up state
+	s.reseedMut.Lock()
+	defer s.reseedMut.Unlock()
+
+	origRunning := s.RunningCopy()
+	candidates := rpc.RankReseedCandidates(s.running)
+	if len(candidates) == 0 {
+		e := errors.New("Failed to retrieve any candidates for reseeding! " +
+			"No recovery possible!")
+		log.Error(e)
+		return e
+	}
+
+	for _, node := range candidates {
+		log.Warningf("Attempting to re-seed candidate %s with Raft index %d!",
+			node.Node, node.RaftIndex)
+		// TODO(tyler) implement:
+		// 1. restart node with --force-new-cluster
+		// 2. ensure it passes health check
+		// otherwise return err
+		// 3. ensure its member list only contains itself
+		// otherwise we're in a really messed up state
+	}
+
 	return nil
 }
 

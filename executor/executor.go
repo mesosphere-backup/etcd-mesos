@@ -111,7 +111,6 @@ func (e *Executor) Disconnected(_ executor.ExecutorDriver) {
 func (e *Executor) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
 	defer log.Flush()
 	e.tasksLaunched++
-	log.Infof("Launching task #%d %q with command %q", ti.GetName(), ti.Command.GetValue())
 
 	var running []*config.Node
 	err := json.Unmarshal(ti.Data, &running)
@@ -154,19 +153,26 @@ func (e *Executor) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
 
 	go func() {
 		defer log.Flush()
+
+		logfile, err := os.Create("./etcd.log")
+		if err != nil {
+			panic(err)
+		}
+		defer logfile.Close()
+
 		log.Infoln("calling command: ", cmd)
 		parts := strings.Fields(cmd)
 		head, tail := parts[0], parts[1:]
 		command := exec.Command(head, tail...)
-		command.Stdout = os.Stdout
-		command.Stderr = os.Stdout
+		command.Stdout = logfile
+		command.Stderr = logfile
 		command.Start()
 
 		runStatus := &mesos.TaskStatus{
 			TaskId: ti.GetTaskId(),
 			State:  mesos.TaskState_TASK_RUNNING.Enum(),
 		}
-		_, err := dv.SendStatusUpdate(runStatus)
+		_, err = dv.SendStatusUpdate(runStatus)
 		if err != nil {
 			log.Infoln("Got error sending status update: ", err)
 		}
@@ -245,7 +251,7 @@ func command(nodes ...*config.Node) (string, error) {
 
 	cluster := make([]string, 0, len(nodes))
 	for _, n := range nodes {
-		log.Errorf("formatting node: %+v", n)
+		log.Infof("formatting node: %+v", n)
 		cluster = append(cluster, fmt.Sprintf("%s=http://%s:%d", n.Name, n.Host, n.RPCPort))
 	}
 

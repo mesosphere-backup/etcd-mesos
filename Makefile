@@ -42,3 +42,6 @@ cover:
 
 test:
 	go test -race ./...
+
+docker:
+	docker build -t etcd-mesos .

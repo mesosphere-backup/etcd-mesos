@@ -19,6 +19,8 @@
 package main
 
 import (
+	"flag"
+
 	log "github.com/golang/glog"
 	"github.com/mesos/mesos-go/executor"
 
@@ -26,6 +28,7 @@ import (
 )
 
 func main() {
+	flag.Parse()
 	log.Infoln("Starting Etcd Executor")
 
 	dconfig := executor.DriverConfig{

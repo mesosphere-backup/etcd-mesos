@@ -247,7 +247,7 @@ func command(nodes ...*config.Node) (string, error) {
 
 	cluster := make([]string, 0, len(nodes))
 	for _, n := range nodes {
-		log.Errorf("formatting node: %+v", n)
+		log.Infof("formatting node: %+v", n)
 		cluster = append(cluster, fmt.Sprintf("%s=http://%s:%d", n.Name, n.Host, n.RPCPort))
 	}
 

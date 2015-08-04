@@ -108,30 +108,30 @@ func (e *Executor) Disconnected(_ executor.ExecutorDriver) {
 	}()
 }
 
-func (e *Executor) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
+func (e *Executor) LaunchTask(driver executor.ExecutorDriver, taskInfo *mesos.TaskInfo) {
 	defer log.Flush()
 	e.tasksLaunched++
-	log.Infof("Launching task #%d %q with command %q", ti.GetName(), ti.Command.GetValue())
+	log.Infof("Launching task #%d %q with command %q", taskInfo.GetName(), taskInfo.Command.GetValue())
 
 	var running []*config.Node
-	err := json.Unmarshal(ti.Data, &running)
+	err := json.Unmarshal(taskInfo.Data, &running)
 	if err != nil {
 		log.Errorf("Could not deserialize running nodes list: %v", err)
-		handleFailure(dv, ti)
+		handleFailure(driver, taskInfo)
 		return
 	}
 
 	if len(running) == 0 {
 		log.Error("Received empty running nodes list. The first element is " +
 			"assumed to be our own configuration, so this is invalid.")
-		handleFailure(dv, ti)
+		handleFailure(driver, taskInfo)
 		return
 	}
 
 	cmd, err := command(running...)
 	if err != nil {
 		log.Errorf("Failed to create configuration for etcd: %v", err)
-		handleFailure(dv, ti)
+		handleFailure(driver, taskInfo)
 		return
 	}
 	log.Infof("Running command: %s", cmd)
@@ -148,72 +148,74 @@ func (e *Executor) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
 	err = rpc.ConfigureInstance(runningMap, running[0])
 	if err != nil {
 		log.Errorf("Could not configure new etcd instance, cannot continue: %v", err)
-		handleFailure(dv, ti)
+		handleFailure(driver, taskInfo)
 		return
 	}
 
-	go func() {
-		defer log.Flush()
-		log.Infoln("calling command: ", cmd)
-		parts := strings.Fields(cmd)
-		head, tail := parts[0], parts[1:]
-		command := exec.Command(head, tail...)
-		command.Stdout = os.Stdout
-		command.Stderr = os.Stdout
-		command.Start()
-
-		runStatus := &mesos.TaskStatus{
-			TaskId: ti.GetTaskId(),
-			State:  mesos.TaskState_TASK_RUNNING.Enum(),
-		}
-		_, err := dv.SendStatusUpdate(runStatus)
-		if err != nil {
-			log.Infoln("Got error sending status update: ", err)
-		}
-
-		go snapshotter(running[0])
-		go http.ListenAndServe(fmt.Sprintf(":%d", running[0].HTTPPort), nil)
-
-		err = command.Wait()
-		if err != nil {
-			if exitError, ok := err.(*exec.ExitError); ok {
-				// TODO: process exited with non-zero status
-				log.Errorf("cmd was: %s", cmd)
-				log.Errorf("Process exited with nonzero exit status: %+v", exitError)
-			} else {
-				// TODO: I/O problems...
-			}
-		}
-
-		// TODO add monitoring
-
-		// finish task
-		log.Infoln("Finishing task", ti.GetName())
-		finStatus := &mesos.TaskStatus{
-			TaskId: ti.GetTaskId(),
-			State:  mesos.TaskState_TASK_FINISHED.Enum(),
-		}
-		_, err = dv.SendStatusUpdate(finStatus)
-		if err != nil {
-			log.Infoln("Aborting after error ", err)
-			dv.Abort()
-			return
-		}
-
-		log.Infoln("Task finished", ti.GetName())
-	}()
+	go etcdHarness(taskInfo, cmd, driver, running[0])
 }
 
-func handleFailure(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
+func etcdHarness(taskInfo *mesos.TaskInfo, cmd string, driver executor.ExecutorDriver, node *config.Node) {
+	defer log.Flush()
+	log.Infoln("calling command: ", cmd)
+	parts := strings.Fields(cmd)
+	head, tail := parts[0], parts[1:]
+	command := exec.Command(head, tail...)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stdout
+	command.Start()
+
+	runStatus := &mesos.TaskStatus{
+		TaskId: taskInfo.GetTaskId(),
+		State:  mesos.TaskState_TASK_RUNNING.Enum(),
+	}
+	_, err := driver.SendStatusUpdate(runStatus)
+	if err != nil {
+		log.Infoln("Got error sending status update: ", err)
+	}
+
+	go snapshotter(node)
+	go http.ListenAndServe(fmt.Sprintf(":%d", node.HTTPPort), nil)
+
+	err = command.Wait()
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			// TODO: process exited with non-zero status
+			log.Errorf("cmd was: %s", cmd)
+			log.Errorf("Process exited with nonzero exit status: %+v", exitError)
+		} else {
+			// TODO: I/O problems...
+		}
+	}
+
+	// TODO add monitoring
+
+	// finish task
+	log.Infoln("Finishing task", taskInfo.GetName())
 	finStatus := &mesos.TaskStatus{
-		TaskId: ti.GetTaskId(),
+		TaskId: taskInfo.GetTaskId(),
+		State:  mesos.TaskState_TASK_FINISHED.Enum(),
+	}
+	_, err = driver.SendStatusUpdate(finStatus)
+	if err != nil {
+		log.Infoln("Aborting after error ", err)
+		driver.Abort()
+		return
+	}
+
+	log.Infoln("Task finished", taskInfo.GetName())
+}
+
+func handleFailure(driver executor.ExecutorDriver, taskInfo *mesos.TaskInfo) {
+	finStatus := &mesos.TaskStatus{
+		TaskId: taskInfo.GetTaskId(),
 		State:  mesos.TaskState_TASK_FAILED.Enum(),
 	}
-	_, err := dv.SendStatusUpdate(finStatus)
+	_, err := driver.SendStatusUpdate(finStatus)
 	if err != nil {
 		log.Infoln("Failed to send final status update: ", err)
 	}
-	dv.Abort()
+	driver.Abort()
 }
 
 func snapshotter(config *config.Node) {
@@ -224,7 +226,7 @@ func (e *Executor) KillTask(_ executor.ExecutorDriver, t *mesos.TaskID) {
 	log.Infof("KillTask: not implemented: %v", t)
 }
 
-func (e *Executor) FrameworkMessage(dv executor.ExecutorDriver, msg string) {
+func (e *Executor) FrameworkMessage(driver executor.ExecutorDriver, msg string) {
 	log.Infof("FrameworkMessage: %s", msg)
 }
 

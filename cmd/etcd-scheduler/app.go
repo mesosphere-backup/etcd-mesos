@@ -24,6 +24,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
 
 	"github.com/gogo/protobuf/proto"
 	log "github.com/golang/glog"
@@ -66,7 +67,7 @@ func main() {
 	etcdPath :=
 		flag.String("etcd", "./bin/etcd", "Path to test executor")
 	address :=
-		flag.String("address", "127.0.0.1", "Binding address for artifact server")
+		flag.String("address", "", "Binding address for scheduler and artifact server")
 	restorePath :=
 		flag.String("restore", "", "Local path or URI for an etcd backup to restore as a new cluster")
 	master :=
@@ -83,6 +84,16 @@ func main() {
 		flag.String("mesos-authentication-provider", sasl.ProviderName,
 			fmt.Sprintf("Authentication provider to use, default is SASL that supports mechanisms: %+v", mech.ListSupported()))
 	flag.Parse()
+
+	if *address == "" {
+		hostname, err := os.Hostname()
+		if err == nil {
+			*address = hostname
+		} else {
+			log.Errorf("Could not set default binding to hostname.  Defaulting to 127.0.0.1")
+			*address = "127.0.0.1"
+		}
+	}
 
 	executorUris := []*mesos.CommandInfo_URI{}
 	execUri, err := etcdscheduler.ServeExecutorArtifact(*executorPath, *address, *artifactPort)

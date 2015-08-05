@@ -21,12 +21,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"strings"
-	//"syscall"
+	"log"
 	"sort"
+	"strings"
+	"syscall"
 	"time"
-
-	log "github.com/golang/glog"
 
 	"github.com/mesosphere/etcd-mesos/rpc"
 	"github.com/samuel/go-zookeeper/zk"
@@ -35,11 +34,18 @@ import (
 func main() {
 	master :=
 		flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
+	etcdBin :=
+		flag.String("etcd-bin", "./bin/etcd", "Path to etcd binary.")
 	clusterName :=
 		flag.String("cluster-name", "default", "Unique name of the etcd cluster to connect to.")
+	dataDir :=
+		flag.String("data-dir", "default.etcd", "Path to the data directory.")
+	clientUrls :=
+		flag.String("listen-client-urls", "http://localhost:2379,http://localhost:4001", "List of URLs to listen on for client traffic.")
 	flag.Parse()
 
 	if strings.HasPrefix(*master, "zk://") {
+		log.Printf("Trying to connect to zk cluster %s", *master)
 		servers, chroot, err := rpc.ParseZKURI(*master)
 		c, _, err := zk.Connect(servers, time.Second*5)
 		if err != nil {
@@ -69,20 +75,34 @@ func main() {
 		master = &strings.Split(mraw, "*")[0]
 	}
 
-	fmt.Printf("master: %s\n", *master)
+	log.Printf("Pulling state.json from master: %s\n", *master)
 	state, err := rpc.GetState("http://" + *master)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	var framework *string
+	var framework *rpc.Framework
 	for _, f := range state.Frameworks {
-		fmt.Printf("fw id: %+v\n", f.Name)
 		if f.Name == "etcd-"+*clusterName {
-			framework = &f.Name
+			framework = &f
 		}
 	}
 	if framework == nil {
 		log.Fatalf("Could not find etcd-%s in the mesos master's state.json", *clusterName)
 	}
+
+	peers := []string{}
+	for _, t := range framework.Tasks {
+		if t.State == "TASK_RUNNING" {
+			splits := strings.Split(t.ID, " ")
+			peers = append(peers, fmt.Sprintf("%s=http://%s:%s", splits[0], splits[1], splits[2]))
+		}
+	}
+
+	initialCluster := fmt.Sprintf("--initial-cluster=%s", strings.Join(peers, ","))
+	dataArg := fmt.Sprintf("--data-dir=%s", *dataDir)
+	listenArg := fmt.Sprintf("--listen-client-urls=%s", *clientUrls)
+	advertiseArg := fmt.Sprintf("--advertise-client-urls=%s", *clientUrls)
+
+	err = syscall.Exec(*etcdBin, []string{initialCluster, dataArg, listenArg, advertiseArg}, []string{})
 }

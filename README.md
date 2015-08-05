@@ -58,7 +58,7 @@ Options for finding your etcd nodes on mesos:
 ```
 etcd  --proxy=on --discovery-srv=etcd-mycluster.mesos
 ```
-3. Use another system that builds configuration from mesos's state.json endpoint.  This is how #1 works, so check out the code for it in `cmd/proxy/app.go` if you want to go this route.
+3. Use another system that builds configuration from mesos's state.json endpoint.  This is how #1 works, so check out the code for it in `cmd/etcd-mesos-proxy/app.go` if you want to go this route.
 
 ## status
 

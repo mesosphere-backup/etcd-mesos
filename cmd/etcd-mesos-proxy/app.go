@@ -27,8 +27,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mesosphere/etcd-mesos/rpc"
 	"github.com/samuel/go-zookeeper/zk"
+
+	"github.com/mesosphere/etcd-mesos/rpc"
 )
 
 func main() {

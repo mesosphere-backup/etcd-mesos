@@ -65,7 +65,7 @@ etcd  --proxy=on --discovery-srv=etcd-mycluster.mesos
 - [x] recovers from n/2-1 failures by reconfiguring the etcd cluster and launching replacement nodes
 - [x] optionally persists framework ID in zookeeper for framework failover purposes
 - [x] reconstructs framework state during failover using surviving task metadata
-- [x] configurable proxy that 
+- [x] proxy that configures itself based on cluster name
 - [ ] recovers from up to n-1 failures by picking a survivor to re-seed a new cluster
 - [ ] nodes periodically perform backup and send to an http endpoint, hdfs, or s3
 - [ ] uses gang scheduling to improve cluster initialization

@@ -25,15 +25,18 @@ A typical production invocation will look something like this:
 
 ## service discovery
 Options for finding your etcd nodes on mesos:
-1. Run the included proxy binary locally on systems that use etcd.  It retrieves the etcd configuration from mesos and starts an etcd proxy node.  Note that this it not a good idea on clusters with lots of tasks running, as the master will iterate through each task and spit out a fairly large chunk of JSON, so this approach should be avoided in favor of mesos-dns on larger clusters.
+
+* Run the included proxy binary locally on systems that use etcd.  It retrieves the etcd configuration from mesos and starts an etcd proxy node.  Note that this it not a good idea on clusters with lots of tasks running, as the master will iterate through each task and spit out a fairly large chunk of JSON, so this approach should be avoided in favor of mesos-dns on larger clusters. 
 ```
 etcd-mesos-proxy --master=zk://localhost:2181/mesos --cluster-name=mycluster
 ```
-2. Use mesos-dns, and have the etcd proxy use SRV discovery:
+
+* Use mesos-dns, and have the etcd proxy use SRV discovery: 
 ```
 etcd  --proxy=on --discovery-srv=etcd-mycluster.mesos
 ```
-3. Use another system that builds configuration from mesos's state.json endpoint.  This is how #1 works, so check out the code for it in `cmd/etcd-mesos-proxy/app.go` if you want to go this route.  Be sure to minimize calls to the master for state.json on larger clusters, as this becomes an expesive operation that can easily DDOS your master if you are not careful.
+
+* Use another system that builds configuration from mesos's state.json endpoint.  This is how #1 works, so check out the code for it in `cmd/etcd-mesos-proxy/app.go` if you want to go this route.  Be sure to minimize calls to the master for state.json on larger clusters, as this becomes an expesive operation that can easily DDOS your master if you are not careful.
 
 ## status
 

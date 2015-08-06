@@ -55,7 +55,11 @@ func main() {
 
 	// Pull the current tasks from the mesos master
 	log.Printf("Pulling state.json from master: %s\n", *master)
-	peers, err := rpc.GetPeersFromMaster(*master, *clusterName)
+	state, err := rpc.GetState("http://" + *master)
+	if err != nil {
+		log.Fatal(err)
+	}
+	peers, err := rpc.GetPeersFromState(state, *clusterName)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -94,12 +94,7 @@ func GetState(master string) (*MasterState, error) {
 	return nil, outerErr
 }
 
-func GetPeersFromMaster(master, clusterName string) ([]string, error) {
-	state, err := GetState("http://" + master)
-	if err != nil {
-		return []string{}, err
-	}
-
+func GetPeersFromState(state *MasterState, clusterName string) ([]string, error) {
 	var framework *Framework
 	for _, f := range state.Frameworks {
 		if f.Name == "etcd-"+clusterName {
@@ -118,7 +113,7 @@ func GetPeersFromMaster(master, clusterName string) ([]string, error) {
 			if err != nil {
 				return []string{}, err
 			}
-			peers = append(peers, fmt.Sprintf("%s=http://%s:%s",
+			peers = append(peers, fmt.Sprintf("%s=http://%s:%d",
 				node.Name, node.Host, node.RPCPort))
 		}
 	}

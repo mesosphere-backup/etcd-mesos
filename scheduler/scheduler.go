@@ -451,20 +451,15 @@ func (s *EtcdScheduler) attemptMasterSync(driver scheduler.SchedulerDriver) {
 }
 
 func (s *EtcdScheduler) isInSync(masterState *rpc.MasterState) bool {
-	if len(masterState.Frameworks) == 0 {
-		log.Error("Master state.json contains no frameworks!")
+	peers, err := rpc.GetPeersFromState(masterState, s.ClusterName)
+	if err != nil {
+		log.Errorf("Could not get peers from master state: %v", err)
 		return false
 	}
 	s.mut.RLock()
 	defer s.mut.RUnlock()
-	for _, fw := range masterState.Frameworks {
-		if fw.ID == s.frameworkID.GetValue() {
-			if len(fw.Tasks) == len(s.running) {
-				return true
-			} else {
-				return false
-			}
-		}
+	if len(peers) == len(s.running) {
+		return true
 	}
 	return false
 }

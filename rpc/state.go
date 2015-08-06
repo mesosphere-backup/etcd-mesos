@@ -20,6 +20,7 @@ package rpc
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math"
@@ -27,6 +28,8 @@ import (
 	"time"
 
 	log "github.com/golang/glog"
+
+	"github.com/mesosphere/etcd-mesos/config"
 )
 
 type Task struct {
@@ -50,6 +53,7 @@ type Task struct {
 
 type Framework struct {
 	ID    string `json:"id"`
+	Name  string `json:"name"`
 	Tasks []Task `json:"tasks"`
 }
 
@@ -88,4 +92,35 @@ func GetState(master string) (*MasterState, error) {
 		backoff = int(math.Min(float64(backoff<<1), 8))
 	}
 	return nil, outerErr
+}
+
+func GetPeersFromMaster(master, clusterName string) ([]string, error) {
+	state, err := GetState("http://" + master)
+	if err != nil {
+		return []string{}, err
+	}
+
+	var framework *Framework
+	for _, f := range state.Frameworks {
+		if f.Name == "etcd-"+clusterName {
+			framework = &f
+		}
+	}
+	if framework == nil {
+		return []string{}, errors.New("Could not find etcd-" + clusterName +
+			" in the mesos master's state.json")
+	}
+
+	peers := []string{}
+	for _, t := range framework.Tasks {
+		if t.State == "TASK_RUNNING" {
+			node, err := config.Parse(t.ID)
+			if err != nil {
+				return []string{}, err
+			}
+			peers = append(peers, fmt.Sprintf("%s=http://%s:%s",
+				node.Name, node.Host, node.RPCPort))
+		}
+	}
+	return peers, nil
 }

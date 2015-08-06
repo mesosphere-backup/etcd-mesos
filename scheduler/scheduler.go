@@ -804,31 +804,61 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 }
 
 // This should never run concurrently.
-func (s *EtcdScheduler) reseed(driver scheduler.SchedulerDriver) error {
+func (s *EtcdScheduler) reseed(driver scheduler.SchedulerDriver) {
 	s.reseedMut.Lock()
 	defer s.reseedMut.Unlock()
 
-	origRunning := s.RunningCopy()
 	candidates := rpc.RankReseedCandidates(s.running)
 	if len(candidates) == 0 {
-		e := errors.New("Failed to retrieve any candidates for reseeding! " +
+		log.Error("Failed to retrieve any candidates for reseeding! " +
 			"No recovery possible!")
-		log.Error(e)
-		return e
+		driver.Abort()
 	}
 
+	// This will intentionally be left locked if this operation fails.
+	s.mut.Lock()
+	s.state = Immutable
+
+	newSeed := ""
 	for _, node := range candidates {
-		log.Warningf("Attempting to re-seed candidate %s with Raft index %d!",
-			node.Node, node.RaftIndex)
-		// TODO(tyler) implement:
 		// 1. restart node with --force-new-cluster
 		// 2. ensure it passes health check
-		// otherwise return err
 		// 3. ensure its member list only contains itself
-		// otherwise we're in a really messed up state
+		// 4. kill everybody else
+		if newSeed != "" {
+			// kill this node, we've already found a successor
+			log.Warningf("Killing node %s from previous cluster")
+		} else {
+			log.Warningf("Attempting to re-seed cluster with candidate %s "+
+				"with Raft index %d!", node.Node, node.RaftIndex)
+			// Try to reseed with this node
+			rpc.TriggerReseed(s.running[node.Node])
+			// Wait for it to become healthy, but if it doesn't then kill it
+			backoff := 1
+			for retries := 0; retries < 5; retries++ {
+				err := rpc.HealthCheck(map[string]*config.Node{
+					node.Node: s.running[node.Node],
+				})
+				if err == nil {
+					log.Warningf("Picked node %s to be the new seed!", node.Node)
+					newSeed = node.Node
+					continue
+				}
+				log.Warningf("Reseed candidate %s not yet healthy.", node.Node)
+				time.Sleep(time.Duration(backoff) * time.Second)
+				backoff = int(math.Min(float64(backoff<<1), 8))
+			}
+			// kill this node
+		}
 	}
-
-	return nil
+	if newSeed != "" {
+		log.Warningf("We think we have a new healthy leader.")
+		s.state = Mutable
+		s.mut.Unlock()
+	} else {
+		log.Error("We were unable to reseed this cluster! Intervention required! " +
+			"Remaining in locked Immutable state (will be reset upon scheduler restart)")
+	}
 }
 
 func parseOffer(offer *mesos.Offer) OfferResources {

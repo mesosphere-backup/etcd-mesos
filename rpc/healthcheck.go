@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/mesosphere/etcd-mesos/config"
@@ -110,53 +109,4 @@ func HealthCheck(running map[string]*config.Node) error {
 		return errors.ErrEtcdRaftStall
 	}
 	return nil
-}
-
-type NodeIndex struct {
-	RaftIndex uint64
-	Node      string
-}
-
-type NodeIndices []NodeIndex
-
-func (n *NodeIndices) Len() int {
-	return len(*n)
-}
-
-func (n *NodeIndices) Less(i, j int) bool {
-	return (*n)[i].RaftIndex < (*n)[j].RaftIndex
-}
-func (n *NodeIndices) Swap(i, j int) {
-	(*n)[i], (*n)[j] = (*n)[j], (*n)[i]
-}
-
-func RankReseedCandidates(running map[string]*config.Node) []NodeIndex {
-	nodeIndices := NodeIndices{}
-
-	for id, args := range running {
-		url := fmt.Sprintf(
-			"http://%s:%d",
-			args.Host,
-			args.ClientPort,
-		)
-		client := etcd.NewClient([]string{url})
-		if ok := client.SyncCluster(); !ok {
-			log.Error("Could not establish connection "+
-				"with cluster using endpoints %+v", url)
-			continue
-		}
-
-		resp, err := client.Get("/", false, false)
-		if err != nil {
-			log.Errorf("Could not query cluster: %s", err)
-			continue
-		}
-
-		nodeIndices = append(nodeIndices, NodeIndex{
-			RaftIndex: resp.RaftIndex,
-			Node:      id,
-		})
-	}
-	sort.Sort(&nodeIndices)
-	return nodeIndices
 }

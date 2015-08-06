@@ -217,6 +217,7 @@ func (e *Executor) etcdHarness(
 			if time.Since(*before) > e.launchTimeout {
 				log.Errorf("We've exceeded the launch timeout of %v, exiting.",
 					e.launchTimeout)
+				handleFailure(driver, taskInfo)
 				if e.shutdown != nil {
 					e.shutdown()
 				}

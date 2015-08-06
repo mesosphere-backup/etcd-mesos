@@ -179,12 +179,12 @@ func etcdHarness(
 	cmdPtr := &cmd
 	for {
 		killChan := make(chan struct{})
-		err = util.WaitUntilPortAvailable(node.RPCPort, 10*time.Second)
+		err = util.WaitUntilPortAvailable(node.RPCPort, 240*time.Second)
 		if err != nil {
 			log.Errorf("Unable to detect usage of, or claim etcd peer communication port: %d, %v", node.RPCPort, err)
 			handleFailure(driver, taskInfo)
 		}
-		err = util.WaitUntilPortAvailable(node.ClientPort, 10*time.Second)
+		err = util.WaitUntilPortAvailable(node.ClientPort, 240*time.Second)
 		if err != nil {
 			log.Errorf("Unable to detect usage of, or claim etcd client communication port: %d, %v", node.ClientPort, err)
 			handleFailure(driver, taskInfo)

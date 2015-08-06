@@ -618,7 +618,7 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 		return false
 	}
 
-	if atomic.LoadInt32(&s.reseeding) == 1 {
+	if atomic.LoadInt32(&s.reseeding) == reseedUnderway {
 		log.Infoln("Currently reseeding, not launching a task.")
 		return false
 	}
@@ -819,7 +819,7 @@ func (s *EtcdScheduler) reseedCluster(driver scheduler.SchedulerDriver) {
 	// This CAS allows us to:
 	//	 1. ensure non-concurrent execution
 	//   2. signal to shouldLaunch that we're already reseeding
-	if !atomic.CompareAndSwapInt32(&s.reseeding, 0, 1) {
+	if !atomic.CompareAndSwapInt32(&s.reseeding, notReseeding, reseedUnderway) {
 		return
 	}
 	candidates := rpc.RankReseedCandidates(s.running)
@@ -864,7 +864,7 @@ func (s *EtcdScheduler) reseedCluster(driver scheduler.SchedulerDriver) {
 			driver.KillTask(s.tasks[node])
 		}
 	}
-	atomic.StoreInt32(&s.reseeding, 0)
+	atomic.StoreInt32(&s.reseeding, notReseeding)
 	s.state = Mutable
 }
 

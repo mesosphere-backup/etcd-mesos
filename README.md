@@ -25,11 +25,13 @@ A typical production invocation will look something like this:
 
 ## service discovery
 Options for finding your etcd nodes on mesos:
-1. Run the included proxy binary locally on systems that use etcd.  It retrieves the etcd configuration from mesos and starts an etcd proxy node.  Note that this it not a good idea on clusters with lots of tasks running, as the master will iterate through each task and spit out a fairly large chunk of JSON, so this approach should be avoided in favor of mesos-dns on larger clusters.  ```
+1. Run the included proxy binary locally on systems that use etcd.  It retrieves the etcd configuration from mesos and starts an etcd proxy node.  Note that this it not a good idea on clusters with lots of tasks running, as the master will iterate through each task and spit out a fairly large chunk of JSON, so this approach should be avoided in favor of mesos-dns on larger clusters. 
+```
 etcd-mesos-proxy --master=zk://localhost:2181/mesos --cluster-name=mycluster
 ```
 
-2. Use mesos-dns, and have the etcd proxy use SRV discovery: ```
+2. Use mesos-dns, and have the etcd proxy use SRV discovery: 
+```
 etcd  --proxy=on --discovery-srv=etcd-mycluster.mesos
 ```
 

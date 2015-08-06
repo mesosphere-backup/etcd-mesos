@@ -1,18 +1,21 @@
-default: clean bin/etcd_executor bin/etcd_scheduler bin/etcd
+default: clean bin/etcd-mesos-executor bin/etcd-mesos-scheduler bin/etcd-mesos-proxy  bin/etcd
 
-run: clean bin/etcd_executor bin/etcd run-scheduler
+run: clean bin/etcd-mesos-executor bin/etcd run-scheduler
 
 clean:
-	-rm bin/etcd_*
+	-rm bin/etcd-*
 
 bin:
 	-mkdir bin
 
-bin/etcd_scheduler: bin
-	go build -o bin/etcd_scheduler cmd/etcd-scheduler/app.go
+bin/etcd-mesos-scheduler: bin
+	go build -o bin/etcd-mesos-scheduler cmd/etcd-mesos-scheduler/app.go
 
-bin/etcd_executor: bin
-	go build -o bin/etcd_executor cmd/etcd-executor/app.go
+bin/etcd-mesos-executor: bin
+	go build -o bin/etcd-mesos-executor cmd/etcd-mesos-executor/app.go
+
+bin/etcd-mesos-proxy: bin
+	go build -o bin/etcd-mesos-proxy cmd/etcd-mesos-proxy/app.go
 
 bin/etcd: bin
 	git submodule init
@@ -20,10 +23,10 @@ bin/etcd: bin
 	cd _vendor/coreos/etcd; ./build; mv bin/* ../../../bin/
   
 run-scheduler:
-	go run -race cmd/etcd-scheduler/app.go -logtostderr=true
+	go run -race cmd/etcd-mesos-scheduler/app.go -logtostderr=true
 
 run-scheduler-with-zk:
-	go run -race cmd/etcd-scheduler/app.go -logtostderr=true \
+	go run -race cmd/etcd-mesos-scheduler/app.go -logtostderr=true \
 		-master="zk://localhost:2181/mesos" \
 		-cluster-name="t1" \
 		-cluster-size=3 \

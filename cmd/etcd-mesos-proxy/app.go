@@ -22,19 +22,16 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"sort"
 	"strings"
 	"syscall"
-	"time"
-
-	"github.com/samuel/go-zookeeper/zk"
 
 	"github.com/mesosphere/etcd-mesos/rpc"
 )
 
 func main() {
 	master :=
-		flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
+		flag.String("master", "127.0.0.1:5050", "Master address <ip:port>, "+
+			"or zk://host:port,host:port/mesos uri")
 	etcdBin :=
 		flag.String("etcd-bin", "./bin/etcd", "Path to etcd binary.")
 	clusterName :=
@@ -49,60 +46,18 @@ func main() {
 	// Pull current master from ZK if a ZK URI was provided
 	if strings.HasPrefix(*master, "zk://") {
 		log.Printf("Trying to connect to zk cluster %s", *master)
-		servers, chroot, err := rpc.ParseZKURI(*master)
-		c, _, err := zk.Connect(servers, time.Second*5)
+		result, err := rpc.GetMasterFromZK(*master)
 		if err != nil {
 			log.Fatal(err)
 		}
-
-		children, _, err := c.Children(chroot)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		var lowest *string
-		ss := sort.StringSlice(children)
-		ss.Sort()
-		for i := 0; i < len(ss); i++ {
-			if strings.HasPrefix(ss[i], "info_") {
-				lowest = &ss[i]
-				break
-			}
-		}
-		if lowest == nil {
-			log.Fatal("Could not find current mesos master in zk")
-		}
-		rawData, _, err := c.Get(chroot + "/" + *lowest)
-		c.Close()
-		mraw := strings.Split(string(rawData), "master@")[1]
-		master = &strings.Split(mraw, "*")[0]
+		*master = result
 	}
 
 	// Pull the current tasks from the mesos master
 	log.Printf("Pulling state.json from master: %s\n", *master)
-	state, err := rpc.GetState("http://" + *master)
+	peers, err := rpc.GetPeersFromMaster(*master, *clusterName)
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	var framework *rpc.Framework
-	for _, f := range state.Frameworks {
-		if f.Name == "etcd-"+*clusterName {
-			framework = &f
-		}
-	}
-	if framework == nil {
-		log.Fatalf("Could not find etcd-%s in the mesos master's state.json",
-			*clusterName)
-	}
-
-	peers := []string{}
-	for _, t := range framework.Tasks {
-		if t.State == "TASK_RUNNING" {
-			splits := strings.Split(t.ID, " ")
-			peers = append(peers, fmt.Sprintf("%s=http://%s:%s",
-				splits[0], splits[1], splits[2]))
-		}
 	}
 
 	// Format etcd proxy configuration options
@@ -118,4 +73,5 @@ func main() {
 		listenArg,
 		advertiseArg,
 	}, []string{})
+	log.Fatal(err)
 }

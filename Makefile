@@ -33,6 +33,11 @@ run-scheduler-with-zk:
 		-zk-framework-persist="zk://localhost:2181/etcd-mesos" \
 		-v=2
 
+run-proxy:
+	go run -race cmd/etcd-mesos-proxy/app.go \
+		-master="zk://localhost:2181/mesos" \
+		-cluster-name="t1"
+
 install:
 	go install ./cmd/...
 

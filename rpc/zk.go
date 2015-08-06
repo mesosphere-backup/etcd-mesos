@@ -20,6 +20,8 @@ package rpc
 
 import (
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -115,4 +117,41 @@ func ClearZKState(
 	}
 	defer c.Close()
 	return c.Delete(zkChroot+"/"+clusterName, -1)
+}
+
+func GetMasterFromZK(zkURI string) (string, error) {
+	servers, chroot, err := ParseZKURI(zkURI)
+	c, _, err := zk.Connect(servers, time.Second*5)
+	if err != nil {
+		return "", err
+	}
+
+	children, _, err := c.Children(chroot)
+	if err != nil {
+		return "", err
+	}
+
+	lowest := ""
+	ss := sort.StringSlice(children)
+	ss.Sort()
+	for i := 0; i < len(ss); i++ {
+		if strings.HasPrefix(ss[i], "info_") {
+			lowest = ss[i]
+			break
+		}
+	}
+	if lowest == "" {
+		return "", errors.New("Could not find current mesos master in zk")
+	}
+	rawData, _, err := c.Get(chroot + "/" + lowest)
+	c.Close()
+	mraw := strings.Split(string(rawData), "@")[1]
+	mraw2 := strings.Split(mraw, ":")
+	host := mraw2[0]
+	port := uint16(0)
+	_, err = fmt.Sscanf(mraw2[1], "%d", &port)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s:%d", host, port), nil
 }

@@ -45,7 +45,6 @@ const (
 
 var cmdTemplate = template.Must(template.New("etcd-cmd").Parse(
 	`./etcd --data-dir=etcd_data --name={{.Name}} ` +
-		`--initial-cluster-state={{.Type}} ` +
 		`--listen-peer-urls=http://{{.Host}}:{{.RPCPort}} ` +
 		`--initial-advertise-peer-urls=http://{{.Host}}:{{.RPCPort}} ` +
 		`--listen-client-urls=http://{{.Host}}:{{.ClientPort}} ` +
@@ -57,6 +56,7 @@ type Executor struct {
 	cancelSuicide chan struct{}
 	tasksLaunched int
 	shutdown      func()
+	launchTimeout time.Duration
 }
 
 type EtcdParams struct {
@@ -66,15 +66,27 @@ type EtcdParams struct {
 
 // New returns an an implementation of an etcd Mesos executor that runs the
 // given command when tasks are launched.
-func New() executor.Executor {
-	return &Executor{cancelSuicide: make(chan struct{}), shutdown: func() { os.Exit(1) }}
+func New(launchTimeout time.Duration) executor.Executor {
+	return &Executor{
+		cancelSuicide: make(chan struct{}),
+		shutdown:      func() { os.Exit(1) },
+		launchTimeout: launchTimeout,
+	}
 }
 
-func (e *Executor) Registered(_ executor.ExecutorDriver, _ *mesos.ExecutorInfo, _ *mesos.FrameworkInfo, si *mesos.SlaveInfo) {
+func (e *Executor) Registered(
+	_ executor.ExecutorDriver,
+	_ *mesos.ExecutorInfo,
+	_ *mesos.FrameworkInfo,
+	si *mesos.SlaveInfo,
+) {
 	log.Infoln("Registered Executor on slave ", si.GetHostname())
 }
 
-func (e *Executor) Reregistered(_ executor.ExecutorDriver, si *mesos.SlaveInfo) {
+func (e *Executor) Reregistered(
+	_ executor.ExecutorDriver,
+	si *mesos.SlaveInfo,
+) {
 	log.Infoln("Re-registered Executor on slave ", si.GetHostname())
 
 	// Cancel until none left, although more than once should not happen.
@@ -108,33 +120,45 @@ func (e *Executor) Disconnected(_ executor.ExecutorDriver) {
 	}()
 }
 
-func (e *Executor) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
+func (e *Executor) LaunchTask(
+	driver executor.ExecutorDriver,
+	taskInfo *mesos.TaskInfo,
+) {
 	defer log.Flush()
 	e.tasksLaunched++
-	log.Infof("Launching task #%d %q with command %q", ti.GetName(), ti.Command.GetValue())
-
 	var running []*config.Node
-	err := json.Unmarshal(ti.Data, &running)
+	err := json.Unmarshal(taskInfo.Data, &running)
 	if err != nil {
 		log.Errorf("Could not deserialize running nodes list: %v", err)
-		handleFailure(dv, ti)
+		handleFailure(driver, taskInfo)
 		return
 	}
 
 	if len(running) == 0 {
 		log.Error("Received empty running nodes list. The first element is " +
 			"assumed to be our own configuration, so this is invalid.")
-		handleFailure(dv, ti)
+		handleFailure(driver, taskInfo)
 		return
 	}
 
+	go e.etcdHarness(taskInfo, running, driver, running[0])
+
+}
+
+func (e *Executor) etcdHarness(
+	taskInfo *mesos.TaskInfo,
+	running []*config.Node,
+	driver executor.ExecutorDriver,
+	node *config.Node,
+) {
+	defer log.Flush()
 	cmd, err := command(running...)
 	if err != nil {
 		log.Errorf("Failed to create configuration for etcd: %v", err)
-		handleFailure(dv, ti)
+		handleFailure(driver, taskInfo)
 		return
 	}
-	log.Infof("Running command: %s", cmd)
+	cmd += " --initial-cluster-state=" + node.Type
 
 	// TODO(tyler) the args to ConfigureInstance should probably be changed
 	// to just accept a []*config.Node instead of map[string]*config.Node
@@ -147,84 +171,127 @@ func (e *Executor) LaunchTask(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
 	}
 	err = rpc.ConfigureInstance(runningMap, running[0])
 	if err != nil {
-		log.Errorf("Could not configure new etcd instance, cannot continue: %v", err)
-		handleFailure(dv, ti)
+		log.Errorf("Could not configure etcd instance, cannot continue: %v", err)
+		handleFailure(driver, taskInfo)
 		return
 	}
 
-	go func() {
-		defer log.Flush()
-		log.Infoln("calling command: ", cmd)
-		parts := strings.Fields(cmd)
-		head, tail := parts[0], parts[1:]
-		command := exec.Command(head, tail...)
-		command.Stdout = os.Stdout
-		command.Stderr = os.Stdout
-		command.Start()
+	reseedChan := make(chan struct{}, 1)
+	go e.reseedListener(node, reseedChan)
 
-		runStatus := &mesos.TaskStatus{
-			TaskId: ti.GetTaskId(),
-			State:  mesos.TaskState_TASK_RUNNING.Enum(),
-		}
-		_, err := dv.SendStatusUpdate(runStatus)
-		if err != nil {
-			log.Infoln("Got error sending status update: ", err)
-		}
+	runStatus := &mesos.TaskStatus{
+		TaskId: taskInfo.GetTaskId(),
+		State:  mesos.TaskState_TASK_RUNNING.Enum(),
+	}
+	_, err = driver.SendStatusUpdate(runStatus)
+	if err != nil {
+		log.Errorf("Got error sending status update, terminating: ", err)
+		handleFailure(driver, taskInfo)
+	}
 
-		go snapshotter(running[0])
-		go http.ListenAndServe(fmt.Sprintf(":%d", running[0].HTTPPort), nil)
-
-		err = command.Wait()
-		if err != nil {
-			if exitError, ok := err.(*exec.ExitError); ok {
-				// TODO: process exited with non-zero status
-				log.Errorf("cmd was: %s", cmd)
-				log.Errorf("Process exited with nonzero exit status: %+v", exitError)
-			} else {
-				// TODO: I/O problems...
+	// Run etcd, but if we receive a reseed request over http
+	// then we must terminate the process, configure it to be
+	// the only node, and tell it to re-seed as a new instance.
+	// If a process exits early, retry until launchTimeout.
+	now := time.Now()
+	before := &now
+	for {
+		killChan := make(chan struct{})
+		exitChan := make(chan struct{})
+		go runUntilClosed(cmd, killChan, exitChan)
+		select {
+		case <-reseedChan:
+			// We've received an http request to reseed
+			close(killChan)
+			cmd, err = command(node)
+			if err != nil {
+				log.Errorf("Failed to create configuration for etcd: %v", err)
+				handleFailure(driver, taskInfo)
+			}
+			cmd += " --force-new-cluster=true"
+			// Restart the launch timeout window.
+			*before = time.Now()
+		case <-exitChan:
+			// We've exited early.  This may be because of a port being
+			// allocated to a previous instance after a reseed attempt.
+			if time.Since(*before) > e.launchTimeout {
+				log.Errorf("We've exceeded the launch timeout of %v, exiting.",
+					e.launchTimeout)
+				handleFailure(driver, taskInfo)
+				if e.shutdown != nil {
+					e.shutdown()
+				}
 			}
 		}
-
-		// TODO add monitoring
-
-		// finish task
-		log.Infoln("Finishing task", ti.GetName())
-		finStatus := &mesos.TaskStatus{
-			TaskId: ti.GetTaskId(),
-			State:  mesos.TaskState_TASK_FINISHED.Enum(),
-		}
-		_, err = dv.SendStatusUpdate(finStatus)
-		if err != nil {
-			log.Infoln("Aborting after error ", err)
-			dv.Abort()
-			return
-		}
-
-		log.Infoln("Task finished", ti.GetName())
-	}()
+	}
 }
 
-func handleFailure(dv executor.ExecutorDriver, ti *mesos.TaskInfo) {
+func runUntilClosed(
+	cmd string,
+	killChan chan struct{},
+	exitChan chan struct{},
+) {
+	log.Infoln("calling command: ", cmd)
+	parts := strings.Fields(cmd)
+	head, tail := parts[0], parts[1:]
+	command := exec.Command(head, tail...)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stdout
+	command.Start()
+
+	go func() {
+		command.Wait()
+		log.Warning("etcd process exited")
+		select {
+		case <-killChan:
+		default:
+			close(exitChan)
+		}
+	}()
+	<-killChan
+	command.Process.Kill()
+}
+
+func handleFailure(
+	driver executor.ExecutorDriver,
+	taskInfo *mesos.TaskInfo,
+) {
 	finStatus := &mesos.TaskStatus{
-		TaskId: ti.GetTaskId(),
+		TaskId: taskInfo.GetTaskId(),
 		State:  mesos.TaskState_TASK_FAILED.Enum(),
 	}
-	_, err := dv.SendStatusUpdate(finStatus)
+	_, err := driver.SendStatusUpdate(finStatus)
 	if err != nil {
 		log.Infoln("Failed to send final status update: ", err)
 	}
-	dv.Abort()
+	driver.Abort()
 }
 
-func snapshotter(config *config.Node) {
-
+func (e *Executor) reseedListener(
+	node *config.Node,
+	reseedChan chan struct{},
+) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/reseed", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "ok")
+		log.Warning("Received reseed request!")
+		reseedChan <- struct{}{}
+	})
+	log.Infof("Listening for requests to reseed on port %d", node.HTTPPort)
+	log.Error(http.ListenAndServe(fmt.Sprintf(":%d", node.HTTPPort), mux))
+	if e.shutdown != nil {
+		e.shutdown()
+	}
 }
 
 func (e *Executor) KillTask(_ executor.ExecutorDriver, t *mesos.TaskID) {
 	log.Infof("KillTask: not implemented: %v", t)
 }
 
-func (e *Executor) FrameworkMessage(dv executor.ExecutorDriver, msg string) {
+func (e *Executor) FrameworkMessage(
+	driver executor.ExecutorDriver,
+	msg string,
+) {
 	log.Infof("FrameworkMessage: %s", msg)
 }
 
@@ -245,8 +312,9 @@ func command(nodes ...*config.Node) (string, error) {
 
 	cluster := make([]string, 0, len(nodes))
 	for _, n := range nodes {
-		log.Errorf("formatting node: %+v", n)
-		cluster = append(cluster, fmt.Sprintf("%s=http://%s:%d", n.Name, n.Host, n.RPCPort))
+		log.Infof("formatting node: %+v", n)
+		cluster = append(cluster,
+			fmt.Sprintf("%s=http://%s:%d", n.Name, n.Host, n.RPCPort))
 	}
 
 	var out bytes.Buffer

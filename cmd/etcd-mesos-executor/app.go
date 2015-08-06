@@ -19,6 +19,9 @@
 package main
 
 import (
+	"flag"
+	"time"
+
 	log "github.com/golang/glog"
 	"github.com/mesos/mesos-go/executor"
 
@@ -26,10 +29,16 @@ import (
 )
 
 func main() {
+	launchTimeout :=
+		flag.Uint("launch-timeout", 240,
+			"Seconds to retry a process launch for before giving up.")
+	flag.Parse()
 	log.Infoln("Starting Etcd Executor")
 
 	dconfig := executor.DriverConfig{
-		Executor: etcdexecutor.New(),
+		Executor: etcdexecutor.New(
+			time.Duration(*launchTimeout) * time.Second,
+		),
 	}
 	driver, err := executor.NewMesosExecutorDriver(dconfig)
 

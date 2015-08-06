@@ -36,6 +36,7 @@ import (
 
 	"github.com/mesosphere/etcd-mesos/config"
 	"github.com/mesosphere/etcd-mesos/rpc"
+	"github.com/mesosphere/etcd-mesos/util"
 )
 
 const (
@@ -111,8 +112,6 @@ func (e *Executor) Disconnected(_ executor.ExecutorDriver) {
 func (e *Executor) LaunchTask(driver executor.ExecutorDriver, taskInfo *mesos.TaskInfo) {
 	defer log.Flush()
 	e.tasksLaunched++
-	log.Infof("Launching task #%d %q with command %q", taskInfo.GetName(), taskInfo.Command.GetValue())
-
 	var running []*config.Node
 	err := json.Unmarshal(taskInfo.Data, &running)
 	if err != nil {
@@ -128,13 +127,23 @@ func (e *Executor) LaunchTask(driver executor.ExecutorDriver, taskInfo *mesos.Ta
 		return
 	}
 
+	go etcdHarness(taskInfo, running, driver, running[0])
+
+}
+
+func etcdHarness(
+	taskInfo *mesos.TaskInfo,
+	running []*config.Node,
+	driver executor.ExecutorDriver,
+	node *config.Node,
+) {
+	defer log.Flush()
 	cmd, err := command(running...)
 	if err != nil {
 		log.Errorf("Failed to create configuration for etcd: %v", err)
 		handleFailure(driver, taskInfo)
 		return
 	}
-	log.Infof("Running command: %s", cmd)
 
 	// TODO(tyler) the args to ConfigureInstance should probably be changed
 	// to just accept a []*config.Node instead of map[string]*config.Node
@@ -152,11 +161,53 @@ func (e *Executor) LaunchTask(driver executor.ExecutorDriver, taskInfo *mesos.Ta
 		return
 	}
 
-	go etcdHarness(taskInfo, cmd, driver, running[0])
+	snapChan := make(chan struct{}, 1)
+	go snapshotListener(node, snapChan)
+
+	runStatus := &mesos.TaskStatus{
+		TaskId: taskInfo.GetTaskId(),
+		State:  mesos.TaskState_TASK_RUNNING.Enum(),
+	}
+	_, err = driver.SendStatusUpdate(runStatus)
+	if err != nil {
+		log.Infoln("Got error sending status update: ", err)
+	}
+
+	// Run etcd, but if we receive a snapshot request over http
+	// then we must terminate the process, configure it to be
+	// the only node, and tell it to re-seed as a new instance.
+	cmdPtr := &cmd
+	for {
+		killChan := make(chan struct{})
+		err = util.WaitUntilPortAvailable(node.RPCPort, 10*time.Second)
+		if err != nil {
+			log.Errorf("Unable to detect usage of, or claim etcd peer communication port: %d, %v", node.RPCPort, err)
+			handleFailure(driver, taskInfo)
+		}
+		err = util.WaitUntilPortAvailable(node.ClientPort, 10*time.Second)
+		if err != nil {
+			log.Errorf("Unable to detect usage of, or claim etcd client communication port: %d, %v", node.ClientPort, err)
+			handleFailure(driver, taskInfo)
+		}
+		go runUntilClosed(*cmdPtr, killChan, driver, taskInfo)
+		<-snapChan
+		close(killChan)
+		cmd, err := command(node)
+		if err != nil {
+			log.Errorf("Failed to create configuration for etcd: %v", err)
+			handleFailure(driver, taskInfo)
+		}
+		cmd += " --force-new-cluster=true"
+		*cmdPtr = cmd
+	}
 }
 
-func etcdHarness(taskInfo *mesos.TaskInfo, cmd string, driver executor.ExecutorDriver, node *config.Node) {
-	defer log.Flush()
+func runUntilClosed(
+	cmd string,
+	killChan chan struct{},
+	driver executor.ExecutorDriver,
+	taskInfo *mesos.TaskInfo,
+) {
 	log.Infoln("calling command: ", cmd)
 	parts := strings.Fields(cmd)
 	head, tail := parts[0], parts[1:]
@@ -165,45 +216,18 @@ func etcdHarness(taskInfo *mesos.TaskInfo, cmd string, driver executor.ExecutorD
 	command.Stderr = os.Stdout
 	command.Start()
 
-	runStatus := &mesos.TaskStatus{
-		TaskId: taskInfo.GetTaskId(),
-		State:  mesos.TaskState_TASK_RUNNING.Enum(),
-	}
-	_, err := driver.SendStatusUpdate(runStatus)
-	if err != nil {
-		log.Infoln("Got error sending status update: ", err)
-	}
-
-	go snapshotter(node)
-	go http.ListenAndServe(fmt.Sprintf(":%d", node.HTTPPort), nil)
-
-	err = command.Wait()
-	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			// TODO: process exited with non-zero status
-			log.Errorf("cmd was: %s", cmd)
-			log.Errorf("Process exited with nonzero exit status: %+v", exitError)
-		} else {
-			// TODO: I/O problems...
+	go func() {
+		command.Wait()
+		log.Warning("etcd exited")
+		select {
+		case <-killChan:
+		default:
+			// send TASK_FAILED and abort if we exited without being killed
+			handleFailure(driver, taskInfo)
 		}
-	}
-
-	// TODO add monitoring
-
-	// finish task
-	log.Infoln("Finishing task", taskInfo.GetName())
-	finStatus := &mesos.TaskStatus{
-		TaskId: taskInfo.GetTaskId(),
-		State:  mesos.TaskState_TASK_FINISHED.Enum(),
-	}
-	_, err = driver.SendStatusUpdate(finStatus)
-	if err != nil {
-		log.Infoln("Aborting after error ", err)
-		driver.Abort()
-		return
-	}
-
-	log.Infoln("Task finished", taskInfo.GetName())
+	}()
+	<-killChan
+	command.Process.Kill()
 }
 
 func handleFailure(driver executor.ExecutorDriver, taskInfo *mesos.TaskInfo) {
@@ -218,8 +242,15 @@ func handleFailure(driver executor.ExecutorDriver, taskInfo *mesos.TaskInfo) {
 	driver.Abort()
 }
 
-func snapshotter(config *config.Node) {
-
+func snapshotListener(node *config.Node, snapChan chan struct{}) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/snapshot", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "ok")
+		log.Warning("Received snapshot request!")
+		snapChan <- struct{}{}
+	})
+	log.Infof("Listening for requests to snapshot on port %d", node.HTTPPort)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", node.HTTPPort), mux))
 }
 
 func (e *Executor) KillTask(_ executor.ExecutorDriver, t *mesos.TaskID) {

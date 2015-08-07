@@ -1,3 +1,0 @@
-executor: Discuss need for cancelSuicide
-executor: Discuss need for using go-routines
-

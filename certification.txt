@@ -1,0 +1,34 @@
+certification
+------
+- [x] Scheduler MUST register with a failover timeout
+- [x] Scheduler MUST persist FrameworkID for failover
+- [x] Scheduler MUST recover from process termination
+- [x] Scheduler MUST enable checkpointing.
+- [x] Scheduler MUST decline offers it doesn’t need.
+- [x] Scheduler MUST only use the necessary fraction of an offer.
+- [x] Executor MUST NOT rely on being run on a particular node.
+- [x] Service MUST NOT require anything to be pre-installed on a node.
+- [ ] Service MUST use standard DCOS packaging.
+- [x] Configuration MUST be via CLI parameters or environment variables.
+- [x] Scheduler MUST provide a health check.
+- [ ] Scheduler MUST support a custom FrameworkInfo.name.
+- [ ] Scheduler MUST support a custom FrameworkInfo.role.
+- [ ] Scheduler SHOULD provide FrameworkInfo.webui_url
+- [x] Scheduler MUST reconcile tasks during failover.
+- [x] Scheduler MUST use a reliable store for persistent state.
+- [x] Scheduler MUST distribute its own binaries for executor and tasks.
+- [ ] Executors SHOULD kill their tasks if they themselves terminate.
+- [ ] Executors MUST only persist data in approved locations.
+- [x] Executors MUST use dynamic ports.
+- [x] Executors of the same Service type MUST safely co-exist on a given node.
+- [x] Service MUST recover from lost executors and tasks.
+- [ ] Service MAY provide a DCOS CLI.
+- [ ] A Service with DCOS CLI MUST implement the minimum command set.
+- [ ] A Service with DCOS CLI MUST be driven by HTTP APIs.
+- [x] Scheduler MUST support a custom FrameworkInfo.user.
+- [x] Scheduler MUST support framework authentication.
+- [ ] Scheduler MUST validate version of Mesos.
+- [ ] Service MUST pass Mesosphere’s Service Resiliency Test.
+- [ ] Service MUST be uninstallable.
+- [ ] Service MUST be documented.
+- [ ] Service MUST be supported.

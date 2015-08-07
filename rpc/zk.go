@@ -125,6 +125,7 @@ func GetMasterFromZK(zkURI string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer c.Close()
 
 	children, _, err := c.Children(chroot)
 	if err != nil {
@@ -144,7 +145,6 @@ func GetMasterFromZK(zkURI string) (string, error) {
 		return "", errors.New("Could not find current mesos master in zk")
 	}
 	rawData, _, err := c.Get(chroot + "/" + lowest)
-	c.Close()
 	mraw := strings.Split(string(rawData), "@")[1]
 	mraw2 := strings.Split(mraw, ":")
 	host := mraw2[0]

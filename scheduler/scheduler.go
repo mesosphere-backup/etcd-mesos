@@ -104,12 +104,12 @@ type EtcdScheduler struct {
 }
 
 type Stats struct {
-	RunningServers    uint32 `json:"running_servers"`
-	LaunchedServers   uint32 `json:"launched_servers"`
-	FailedServers     uint32 `json:"failed_servers"`
-	LivelockedCluster uint32 `json:"livelocked_cluster"`
-	ClusterReseeds    uint32 `json:"cluster_reseeds"`
-	IsHealthy         uint32 `json:"healthy"`
+	RunningServers   uint32 `json:"running_servers"`
+	LaunchedServers  uint32 `json:"launched_servers"`
+	FailedServers    uint32 `json:"failed_servers"`
+	ClusterLivelocks uint32 `json:"cluster_livelocks"`
+	ClusterReseeds   uint32 `json:"cluster_reseeds"`
+	IsHealthy        uint32 `json:"healthy"`
 }
 
 type OfferResources struct {
@@ -667,7 +667,7 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 	err = s.healthCheck(s.running)
 	if err != nil {
 		atomic.StoreUint32(&s.Stats.IsHealthy, 0)
-		atomic.AddUint32(&s.Stats.LivelockedCluster, 1)
+		atomic.AddUint32(&s.Stats.ClusterLivelocks, 1)
 		// If we have been unhealthy for reseedTimeout seconds, it's time to reseed.
 		if s.livelockWindow != nil {
 			if time.Since(*s.livelockWindow) > s.reseedTimeout {

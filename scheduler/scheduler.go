@@ -71,6 +71,7 @@ const (
 )
 
 type EtcdScheduler struct {
+	Stats                  Stats
 	RestorePath            string
 	Master                 string
 	ExecutorPath           string
@@ -100,6 +101,15 @@ type EtcdScheduler struct {
 	reseedTimeout          time.Duration
 	livelockWindow         *time.Time
 	reseeding              int32
+}
+
+type Stats struct {
+	RunningServers   uint32 `json:"running_servers"`
+	LaunchedServers  uint32 `json:"launched_servers"`
+	FailedServers    uint32 `json:"failed_servers"`
+	ClusterLivelocks uint32 `json:"cluster_livelocks"`
+	ClusterReseeds   uint32 `json:"cluster_reseeds"`
+	IsHealthy        uint32 `json:"healthy"`
 }
 
 type OfferResources struct {
@@ -303,6 +313,7 @@ func (s *EtcdScheduler) StatusUpdate(
 		mesos.TaskState_TASK_KILLED,
 		mesos.TaskState_TASK_ERROR,
 		mesos.TaskState_TASK_FAILED:
+		atomic.AddUint32(&s.Stats.FailedServers, 1)
 		// Pump the brakes so that we have time to deconfigure the lost node
 		// before adding a new one.  If we don't deconfigure first, we risk
 		// split brain.
@@ -529,6 +540,8 @@ func (s *EtcdScheduler) PeriodicLaunchRequestor() {
 			"running instances: %d desired: %d offers: %d",
 			len(s.running), s.desiredInstanceCount, s.offerCache.Len(),
 		)
+		atomic.StoreUint32(&s.Stats.RunningServers, uint32(len(s.running)))
+
 		if len(s.running) < s.desiredInstanceCount &&
 			s.state == Mutable {
 			s.QueueLaunchAttempt()
@@ -653,6 +666,8 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 
 	err = s.healthCheck(s.running)
 	if err != nil {
+		atomic.StoreUint32(&s.Stats.IsHealthy, 0)
+		atomic.AddUint32(&s.Stats.ClusterLivelocks, 1)
 		// If we have been unhealthy for reseedTimeout seconds, it's time to reseed.
 		if s.livelockWindow != nil {
 			if time.Since(*s.livelockWindow) > s.reseedTimeout {
@@ -672,6 +687,7 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 			"launch attempt for later: %s", err)
 		return false
 	}
+	atomic.StoreUint32(&s.Stats.IsHealthy, 1)
 
 	// reset livelock window because we're healthy
 	s.livelockWindow = nil
@@ -751,7 +767,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		Host:       *offer.Hostname,
 		RPCPort:    rpcPort,
 		ClientPort: clientPort,
-		HTTPPort:   httpPort,
+		ReseedPort: httpPort,
 		Type:       clusterType,
 		SlaveID:    offer.GetSlaveId().GetValue(),
 	}
@@ -806,6 +822,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	// calls this scheduler's StatusUpdate method, causing the test to deadlock.
 	s.mut.Unlock()
 
+	atomic.AddUint32(&s.Stats.LaunchedServers, 1)
 	driver.LaunchTasks(
 		[]*mesos.OfferID{offer.Id},
 		tasks,
@@ -815,6 +832,40 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	)
 }
 
+func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+		log.Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		serializedStats, err := json.Marshal(s.Stats)
+		if err != nil {
+			log.Errorf("Failed to marshal stats json: %v", err)
+		}
+		fmt.Fprint(w, string(serializedStats))
+	})
+	mux.HandleFunc("/reseed", func(w http.ResponseWriter, r *http.Request) {
+		log.Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		go s.reseedCluster(driver)
+		fmt.Fprint(w, string("reseeding"))
+	})
+	mux.HandleFunc("/members", func(w http.ResponseWriter, r *http.Request) {
+		log.Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		running := []*config.Node{}
+		for _, r := range s.RunningCopy() {
+			running = append(running, r)
+		}
+		serializedNodes, err := json.Marshal(running)
+		if err != nil {
+			log.Errorf("Failed to marshal members json: %v", err)
+		}
+		fmt.Fprint(w, string(serializedNodes))
+	})
+	log.Infof("Admin HTTP interface Listening on port %d", port)
+	log.Error(http.ListenAndServe(fmt.Sprintf(":%d", port), mux))
+	if s.shutdown != nil {
+		s.shutdown()
+	}
+}
+
 func (s *EtcdScheduler) reseedCluster(driver scheduler.SchedulerDriver) {
 	// This CAS allows us to:
 	//	 1. ensure non-concurrent execution
@@ -822,6 +873,7 @@ func (s *EtcdScheduler) reseedCluster(driver scheduler.SchedulerDriver) {
 	if !atomic.CompareAndSwapInt32(&s.reseeding, notReseeding, reseedUnderway) {
 		return
 	}
+	atomic.AddUint32(&s.Stats.ClusterReseeds, 1)
 	candidates := rpc.RankReseedCandidates(s.running)
 	if len(candidates) == 0 {
 		log.Error("Failed to retrieve any candidates for reseeding! " +

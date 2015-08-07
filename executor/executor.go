@@ -281,8 +281,8 @@ func (e *Executor) reseedListener(
 		log.Warning("Received reseed request!")
 		reseedChan <- struct{}{}
 	})
-	log.Infof("Listening for requests to reseed on port %d", node.HTTPPort)
-	log.Error(http.ListenAndServe(fmt.Sprintf(":%d", node.HTTPPort), mux))
+	log.Infof("Listening for requests to reseed on port %d", node.ReseedPort)
+	log.Error(http.ListenAndServe(fmt.Sprintf(":%d", node.ReseedPort), mux))
 	if e.shutdown != nil {
 		e.shutdown()
 	}

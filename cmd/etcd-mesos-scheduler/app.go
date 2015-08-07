@@ -58,6 +58,8 @@ func main() {
 		flag.Int("cluster-size", 5, "Total task count to run")
 	reseedTimeout :=
 		flag.Int("reseed-timeout", 240, "Seconds of etcd livelock to wait for before attempting a cluster re-seed")
+	adminPort :=
+		flag.Int("admin-port", 23400, "Binding port for admin interface")
 	artifactPort :=
 		flag.Int("artifact-port", 12300, "Binding port for artifact server")
 	failoverTimeoutSeconds :=
@@ -204,6 +206,7 @@ func main() {
 
 	go etcdScheduler.SerialLauncher(driver)
 	go etcdScheduler.PeriodicLaunchRequestor()
+	go etcdScheduler.AdminHTTP(*adminPort, driver)
 
 	if stat, err := driver.Run(); err != nil {
 		log.Infof("Framework stopped with status %s and error: %s",

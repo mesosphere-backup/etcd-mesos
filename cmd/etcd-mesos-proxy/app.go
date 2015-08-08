@@ -19,29 +19,63 @@
 package main
 
 import (
+	"bytes"
 	"flag"
-	"fmt"
+	"io/ioutil"
 	"log"
+	"os"
 	"strings"
 	"syscall"
+	"text/template"
 
 	"github.com/mesosphere/etcd-mesos/rpc"
 )
 
+type proxyArgs struct {
+	InitialCluster string
+	DataDir        string
+	ListenAddrs    string
+	AdvertiseAddrs string
+}
+
+var cmdTemplate = template.Must(template.New("etcd-cmd").Parse(
+	`--proxy=on ` +
+		`--data-dir={{.DataDir}} ` +
+		`--listen-client-urls={{.ListenAddrs}} ` +
+		`--advertise-client-urls={{.AdvertiseAddrs}} ` +
+		`--initial-cluster={{.InitialCluster}}`,
+))
+
 func main() {
 	master :=
 		flag.String("master", "127.0.0.1:5050", "Master address <ip:port>, "+
-			"or zk://host:port,host:port/mesos uri")
+			"or zk://host:port,host:port/mesos uri for discovering the current "+
+			"mesos master.")
 	etcdBin :=
-		flag.String("etcd-bin", "./bin/etcd", "Path to etcd binary.")
+		flag.String("etcd-bin", "./bin/etcd", "Path to etcd binary to "+
+			"configure and run.")
 	clusterName :=
-		flag.String("cluster-name", "default", "Unique name of the etcd cluster to connect to.")
-	dataDir :=
-		flag.String("data-dir", "default.etcd", "Path to the data directory.")
+		flag.String("cluster-name", "default", "Unique name of the etcd cluster "+
+			"to connect to, corresponding to the --cluster-name arg passed to the "+
+			"etcd-mesos-scheduler")
+	flag.String("data-dir", "default.etcd", "Path to the data directory.")
 	clientUrls :=
 		flag.String("listen-client-urls", "http://localhost:2379,http://localhost:4001",
 			"List of URLs to listen on for client traffic.")
 	flag.Parse()
+
+	// Generate a temporary directory for the proxy
+	path, err := ioutil.TempDir("", "etcd-mesos-proxy")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// HACK: this tricks etcd into avoiding a bug that prevents
+	// it from running in proxy mode.
+	err = os.Mkdir(path+"/proxy", os.ModeDir|0777)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Pull current master from ZK if a ZK URI was provided
 	if strings.HasPrefix(*master, "zk://") {
@@ -65,17 +99,17 @@ func main() {
 	}
 
 	// Format etcd proxy configuration options
-	initialCluster := fmt.Sprintf("--initial-cluster=%s", strings.Join(peers, ","))
-	dataArg := fmt.Sprintf("--data-dir=%s", *dataDir)
-	listenArg := fmt.Sprintf("--listen-client-urls=%s", *clientUrls)
-	advertiseArg := fmt.Sprintf("--advertise-client-urls=%s", *clientUrls)
+	var args bytes.Buffer
+	err = cmdTemplate.Execute(&args, proxyArgs{
+		InitialCluster: strings.Join(peers, ","),
+		DataDir:        path,
+		ListenAddrs:    *clientUrls,
+		AdvertiseAddrs: *clientUrls,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	err = syscall.Exec(*etcdBin, []string{
-		"--proxy=on",
-		initialCluster,
-		dataArg,
-		listenArg,
-		advertiseArg,
-	}, []string{})
+	err = syscall.Exec(*etcdBin, strings.Fields(args.String()), []string{})
 	log.Fatal(err)
 }

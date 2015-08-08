@@ -62,8 +62,6 @@ type MasterState struct {
 	Frameworks []Framework `json:"frameworks"`
 }
 
-// TODO(tyler) use one of the more specific endpoints for mesos masters
-// that are a version high enough to handle them.
 func GetState(master string) (*MasterState, error) {
 	backoff := 1
 	log.Infof("Trying to get master state from %s/state.json", master)

@@ -385,7 +385,6 @@ func (s *EtcdScheduler) ExecutorLost(
 func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 	log.Infoln("Scheduler received error:", err)
 	if err == "Completed framework attempted to re-register" {
-		// TODO(tyler) automatically restart, don't expect this to be restarted externally
 		rpc.ClearZKState(s.ZkServers, s.ZkChroot, s.ClusterName)
 		log.Error(
 			"Removing reference to completed " +
@@ -567,8 +566,6 @@ func (s *EtcdScheduler) Prune() error {
 			for k := range configuredMembers {
 				_, present := s.running[k]
 				if !present {
-					// TODO(tyler) only do this after we've allowed time to settle after
-					// reconciliation, or we will nuke valid nodes!
 					log.Warningf("Prune attempting to deconfigure unknown etcd "+
 						"instance: %s", k)
 					if err := rpc.RemoveInstance(s.running, k); err != nil {
@@ -636,8 +633,6 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 		return false
 	}
 
-	// TODO(tyler) verify that we will always hear back after putting something
-	// into pending, otherwise this will create a locked scheduler.
 	if len(s.pending) != 0 {
 		log.Infoln("Waiting on pending task to fail or submit status. " +
 			"Not launching until we hear back.")
@@ -657,8 +652,6 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 		return false
 	}
 	if len(members) == s.desiredInstanceCount {
-		// TODO(tyler) verify that the mismatched nodes are actually dead,
-		// and attempt to reconcile if not.
 		log.Errorf("Cluster is already configured for desired number of nodes.  " +
 			"Must deconfigure any dead nodes first or we may risk livelock.")
 		return false

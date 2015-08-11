@@ -48,7 +48,10 @@ func HealthCheck(running map[string]*config.Node) error {
 			args.Host,
 			args.ClientPort,
 		)
-		resp, err := http.Get(url + "/v2/stats/leader")
+		client := http.Client{
+			Timeout: 5 * time.Second,
+		}
+		resp, err := client.Get(url + "/v2/stats/leader")
 		if err != nil {
 			log.Errorf("Could not query %s for leader stats: %+v", url, err)
 			continue

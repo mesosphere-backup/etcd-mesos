@@ -53,7 +53,7 @@ func NewOffer(id string) *mesos.Offer {
 
 func TestStartup(t *gotesting.T) {
 	mockdriver := &MockSchedulerDriver{}
-	testScheduler := NewEtcdScheduler(1, 0, 0, []*mesos.CommandInfo_URI{}, false)
+	testScheduler := NewEtcdScheduler(1, 0, 0, false, []*mesos.CommandInfo_URI{}, false)
 	testScheduler.running = map[string]*config.Node{
 		"etcd-1": nil,
 		"etcd-2": nil,
@@ -107,7 +107,7 @@ func TestStartup(t *gotesting.T) {
 }
 
 func TestReconciliationOnStartup(t *gotesting.T) {
-	testScheduler := NewEtcdScheduler(3, 0, 0, []*mesos.CommandInfo_URI{}, false)
+	testScheduler := NewEtcdScheduler(3, 0, 0, true, []*mesos.CommandInfo_URI{}, false)
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
 		scheduler:       testScheduler,
@@ -177,7 +177,7 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 }
 
 func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
-	testScheduler := NewEtcdScheduler(3, 0, 0, []*mesos.CommandInfo_URI{}, false)
+	testScheduler := NewEtcdScheduler(3, 0, 0, true, []*mesos.CommandInfo_URI{}, false)
 	testScheduler.masterInfo = util.NewMasterInfo("master-1", 0, 0)
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
@@ -289,6 +289,7 @@ func TestScheduler(t *gotesting.T) {
 		ntasks,
 		chillFactor,
 		0,
+		false,
 		[]*mesos.CommandInfo_URI{},
 		false,
 	)

@@ -23,6 +23,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/mesosphere/etcd-mesos/config"
 
@@ -85,7 +86,10 @@ func TriggerReseed(node *config.Node) error {
 		node.Host,
 		node.ReseedPort,
 	)
-	resp, err := http.Get(url + "/reseed")
+	client := http.Client{
+		Timeout: 5 * time.Second,
+	}
+	resp, err := client.Get(url + "/reseed")
 	if err != nil {
 		log.Errorf("Could not request %s to reseed: %+v", url, err)
 		return err

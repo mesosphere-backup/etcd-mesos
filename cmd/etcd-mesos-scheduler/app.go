@@ -52,18 +52,23 @@ func parseIP(address string) net.IP {
 }
 
 func main() {
-	singleInstancePerSlave :=
-		flag.Bool("single-instance-per-slave", true, "Only allow one etcd instance to be started per slave")
+	clusterName :=
+		flag.String("cluster-name", "default", "Unique name of this etcd cluster")
+	master :=
+		flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
+	zkFrameworkPersist :=
+		flag.String("zk-framework-persist", "", "Zookeeper URI of the form zk://host1:port1,host2:port2/chroot/path")
 	taskCount :=
 		flag.Int("cluster-size", 5, "Total task count to run")
-	reseedTimeout :=
-		flag.Int("reseed-timeout", 240, "Seconds of etcd livelock to wait for before attempting a cluster re-seed")
 	adminPort :=
 		flag.Int("admin-port", 23400, "Binding port for admin interface")
+	reseedTimeout :=
+		flag.Int("reseed-timeout", 240, "Seconds of etcd livelock to wait for before attempting a cluster re-seed")
+	autoReseed :=
+		flag.Bool("auto-reseed", true, "Perform automatic cluster reseed when the "+
+			"cluster has been livelocked for -reseed-timeout seconds")
 	artifactPort :=
 		flag.Int("artifact-port", 12300, "Binding port for artifact server")
-	failoverTimeoutSeconds :=
-		flag.Float64("failover-timeout-seconds", 60*60*24*7, "Mesos framework failover timeout in seconds")
 	executorPath :=
 		flag.String("executor-bin", "./bin/etcd-mesos-executor", "Path to executor binary")
 	etcdPath :=
@@ -72,22 +77,35 @@ func main() {
 		flag.String("address", "", "Binding address for scheduler and artifact server")
 	driverPort :=
 		flag.Int("driver-port", 0, "Binding port for scheduler driver")
-	restorePath :=
-		flag.String("restore", "", "Local path or URI for an etcd backup to restore as a new cluster")
-	master :=
-		flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
-	clusterName :=
-		flag.String("cluster-name", "default", "Unique name of this etcd cluster")
 	mesosAuthPrincipal :=
 		flag.String("mesos-authentication-principal", "", "Mesos authentication principal")
 	mesosAuthSecretFile :=
 		flag.String("mesos-authentication-secret-file", "", "Mesos authentication secret file")
-	zkConnect :=
-		flag.String("zk-framework-persist", "", "Zookeeper URI of the form zk://host1:port1,host2:port2/chroot/path")
 	authProvider :=
 		flag.String("mesos-authentication-provider", sasl.ProviderName,
 			fmt.Sprintf("Authentication provider to use, default is SASL that supports mechanisms: %+v", mech.ListSupported()))
+	singleInstancePerSlave :=
+		flag.Bool("single-instance-per-slave", true, "Only allow one etcd instance to be started per slave")
+	testMode :=
+		flag.Bool("test-mode", false, "disable forced values for -single-instance-per-slave and "+
+			"-zk-framework-persist")
+	failoverTimeoutSeconds :=
+		flag.Float64("failover-timeout-seconds", 60*60*24*7, "Mesos framework failover timeout in seconds")
 	flag.Parse()
+
+	if *zkFrameworkPersist == "" && !*testMode {
+		log.Fatal("No value provided for -zk-framework-persist ! This can be " +
+			"overridden by experts using the -test-mode=true argument, but several " +
+			"runtime guarantees no longer hold, and all tasks will be orphaned when " +
+			"this process exits.")
+	}
+
+	if !*singleInstancePerSlave && !*testMode {
+		log.Fatal("-single-instance-per-slave=false is dangerous because it may lead to " +
+			"multiple etcd instances in the same cluster on a single node, amplifying " +
+			"the cost of a single node being lost, livelock, and data loss.  This can " +
+			"be overridden by passing the -test-mode=true argument, at your peril.")
+	}
 
 	if *address == "" {
 		hostname, err := os.Hostname()
@@ -131,14 +149,14 @@ func main() {
 		*taskCount,
 		chillFactor,
 		*reseedTimeout,
+		*autoReseed,
 		executorUris,
 		*singleInstancePerSlave,
 	)
 	etcdScheduler.ExecutorPath = *executorPath
-	etcdScheduler.RestorePath = *restorePath
 	etcdScheduler.Master = *master
 	etcdScheduler.ClusterName = *clusterName
-	etcdScheduler.ZkConnect = *zkConnect
+	etcdScheduler.ZkConnect = *zkFrameworkPersist
 
 	fwinfo := &mesos.FrameworkInfo{
 		User:            proto.String(""), // Mesos-go will fill in user.
@@ -160,12 +178,12 @@ func main() {
 		}
 	}
 
-	zkServers, zkChroot, err := rpc.ParseZKURI(*zkConnect)
+	zkServers, zkChroot, err := rpc.ParseZKURI(*zkFrameworkPersist)
 	etcdScheduler.ZkServers = zkServers
 	etcdScheduler.ZkChroot = zkChroot
-	if err != nil && *zkConnect != "" {
-		log.Fatalf("Error parsing zookeeper URI of %s: %s", *zkConnect, err)
-	} else if *zkConnect != "" {
+	if err != nil && *zkFrameworkPersist != "" {
+		log.Fatalf("Error parsing zookeeper URI of %s: %s", *zkFrameworkPersist, err)
+	} else if *zkFrameworkPersist != "" {
 		previous, err := rpc.GetPreviousFrameworkID(
 			zkServers,
 			zkChroot,

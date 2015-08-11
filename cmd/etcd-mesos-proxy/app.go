@@ -72,6 +72,7 @@ func main() {
 
 	// HACK: this tricks etcd into avoiding a bug that prevents
 	// it from running in proxy mode.
+	// see: https://github.com/coreos/etcd/issues/3258
 	err = os.Mkdir(path+"/proxy", os.ModeDir|0777)
 	if err != nil {
 		log.Fatal(err)

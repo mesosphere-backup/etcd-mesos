@@ -69,7 +69,10 @@ func GetState(master string) (*MasterState, error) {
 	masterState := &MasterState{}
 	for retries := 0; retries < 5; retries++ {
 		for {
-			resp, err := http.Get(fmt.Sprintf("%s/state.json", master))
+			client := http.Client{
+				Timeout: 5 * time.Second,
+			}
+			resp, err := client.Get(fmt.Sprintf("%s/state.json", master))
 			if err != nil {
 				outerErr = err
 				break

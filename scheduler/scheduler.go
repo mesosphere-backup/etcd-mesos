@@ -72,7 +72,6 @@ const (
 
 type EtcdScheduler struct {
 	Stats                  Stats
-	RestorePath            string
 	Master                 string
 	ExecutorPath           string
 	EtcdPath               string
@@ -98,6 +97,7 @@ type EtcdScheduler struct {
 	launchChan             chan struct{}
 	pauseChan              chan struct{}
 	chillSeconds           time.Duration
+	autoReseedEnabled      bool
 	reseedTimeout          time.Duration
 	livelockWindow         *time.Time
 	reseeding              int32
@@ -123,6 +123,7 @@ func NewEtcdScheduler(
 	desiredInstanceCount int,
 	chillSeconds int,
 	reseedTimeout int,
+	autoReseed bool,
 	executorUris []*mesos.CommandInfo_URI,
 	singleInstancePerSlave bool,
 ) *EtcdScheduler {
@@ -135,6 +136,7 @@ func NewEtcdScheduler(
 		executorUris:         executorUris,
 		ZkServers:            []string{},
 		chillSeconds:         time.Duration(chillSeconds),
+		autoReseedEnabled:    autoReseed,
 		reseedTimeout:        time.Second * time.Duration(reseedTimeout),
 		desiredInstanceCount: desiredInstanceCount,
 		launchChan:           make(chan struct{}, 2048),
@@ -664,11 +666,17 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 		// If we have been unhealthy for reseedTimeout seconds, it's time to reseed.
 		if s.livelockWindow != nil {
 			if time.Since(*s.livelockWindow) > s.reseedTimeout {
-				log.Errorf("Cluster has been livelocked for longer than %d seconds! "+
-					"Initiating reseed...", s.reseedTimeout/time.Second)
-				// Set scheduler to immutable so that shouldLaunch bails out almost
-				// instantly, preventing multiple reseed events from occurring concurrently
-				go s.reseedCluster(driver)
+				log.Errorf("Cluster has been livelocked for longer than %d seconds!",
+					s.reseedTimeout/time.Second)
+				if s.autoReseedEnabled {
+					log.Warningf("Initiating reseed...")
+					// Set scheduler to immutable so that shouldLaunch bails out almost
+					// instantly, preventing multiple reseed events from occurring concurrently
+					go s.reseedCluster(driver)
+				} else {
+					log.Warning("Automatic reseed disabled (--auto-reseed=false). " +
+						"Doing nothing.")
+				}
 				return false
 			}
 		} else {

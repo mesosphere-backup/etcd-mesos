@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -160,8 +161,6 @@ func (e *Executor) etcdHarness(
 	}
 	cmd += " --initial-cluster-state=" + node.Type
 
-	// TODO(tyler) the args to ConfigureInstance should probably be changed
-	// to just accept a []*config.Node instead of map[string]*config.Node
 	runningMap := map[string]*config.Node{}
 	for i, r := range running {
 		// Skip first element because we haven't started it yet.
@@ -195,6 +194,7 @@ func (e *Executor) etcdHarness(
 	// If a process exits early, retry until launchTimeout.
 	now := time.Now()
 	before := &now
+	delay := 0
 	for {
 		killChan := make(chan struct{})
 		exitChan := make(chan struct{})
@@ -222,6 +222,10 @@ func (e *Executor) etcdHarness(
 					e.shutdown()
 				}
 			}
+			// linear truncated backoff
+			time.Sleep(time.Duration(delay) * time.Second)
+			delay += 1
+			delay = int(math.Min(float64(delay), 4))
 		}
 	}
 }
@@ -277,8 +281,8 @@ func (e *Executor) reseedListener(
 		log.Warning("Received reseed request!")
 		reseedChan <- struct{}{}
 	})
-	log.Infof("Listening for requests to reseed on port %d", node.HTTPPort)
-	log.Error(http.ListenAndServe(fmt.Sprintf(":%d", node.HTTPPort), mux))
+	log.Infof("Listening for requests to reseed on port %d", node.ReseedPort)
+	log.Error(http.ListenAndServe(fmt.Sprintf(":%d", node.ReseedPort), mux))
 	if e.shutdown != nil {
 		e.shutdown()
 	}

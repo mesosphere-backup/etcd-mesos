@@ -31,7 +31,9 @@ import (
 func main() {
 	launchTimeout :=
 		flag.Uint("launch-timeout", 240,
-			"Seconds to retry a process launch for before giving up.")
+			"Seconds to retry launching an etcd instance for before giving up. "+
+				"This should be long enough for a port occupied by a killed process "+
+				"to be vacated.")
 	flag.Parse()
 	log.Infoln("Starting Etcd Executor")
 

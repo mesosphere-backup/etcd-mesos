@@ -33,9 +33,11 @@ import (
 	log "github.com/golang/glog"
 )
 
+// HealthCheck performs basic sanity checks on an etcd cluster.
+// This function explicitly forgoes backoffs.  If it fails
+// something, it is assumed to be unhealthy.
 func HealthCheck(running map[string]*config.Node) error {
 	// TODO(tyler) invariant: all nodes have same leader
-	// TODO(tyler) retry with exponential backoff
 	if len(running) == 0 {
 		return nil
 	}
@@ -46,7 +48,10 @@ func HealthCheck(running map[string]*config.Node) error {
 			args.Host,
 			args.ClientPort,
 		)
-		resp, err := http.Get(url + "/v2/stats/leader")
+		client := http.Client{
+			Timeout: 5 * time.Second,
+		}
+		resp, err := client.Get(url + "/v2/stats/leader")
 		if err != nil {
 			log.Errorf("Could not query %s for leader stats: %+v", url, err)
 			continue

@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -44,10 +45,12 @@ import (
 )
 
 const (
-	cpusPerTask  = 1
-	memPerTask   = 256
-	diskPerTask  = 1024
-	portsPerTask = 3
+	cpusPerTask    = 1
+	memPerTask     = 256
+	diskPerTask    = 1024
+	portsPerTask   = 3
+	notReseeding   = 0
+	reseedUnderway = 1
 )
 
 // State represents the mutability of the scheduler.
@@ -68,7 +71,7 @@ const (
 )
 
 type EtcdScheduler struct {
-	RestorePath            string
+	Stats                  Stats
 	Master                 string
 	ExecutorPath           string
 	EtcdPath               string
@@ -87,14 +90,26 @@ type EtcdScheduler struct {
 	masterInfo             *mesos.MasterInfo
 	pending                map[string]struct{}
 	running                map[string]*config.Node
+	tasks                  map[string]*mesos.TaskID
 	highestInstanceID      int64
 	executorUris           []*mesos.CommandInfo_URI
 	offerCache             *offercache.OfferCache
 	launchChan             chan struct{}
 	pauseChan              chan struct{}
 	chillSeconds           time.Duration
+	autoReseedEnabled      bool
 	reseedTimeout          time.Duration
 	livelockWindow         *time.Time
+	reseeding              int32
+}
+
+type Stats struct {
+	RunningServers   uint32 `json:"running_servers"`
+	LaunchedServers  uint32 `json:"launched_servers"`
+	FailedServers    uint32 `json:"failed_servers"`
+	ClusterLivelocks uint32 `json:"cluster_livelocks"`
+	ClusterReseeds   uint32 `json:"cluster_reseeds"`
+	IsHealthy        uint32 `json:"healthy"`
 }
 
 type OfferResources struct {
@@ -108,6 +123,7 @@ func NewEtcdScheduler(
 	desiredInstanceCount int,
 	chillSeconds int,
 	reseedTimeout int,
+	autoReseed bool,
 	executorUris []*mesos.CommandInfo_URI,
 	singleInstancePerSlave bool,
 ) *EtcdScheduler {
@@ -115,10 +131,12 @@ func NewEtcdScheduler(
 		state:                Immutable,
 		running:              map[string]*config.Node{},
 		pending:              map[string]struct{}{},
+		tasks:                map[string]*mesos.TaskID{},
 		highestInstanceID:    time.Now().Unix(),
 		executorUris:         executorUris,
 		ZkServers:            []string{},
 		chillSeconds:         time.Duration(chillSeconds),
+		autoReseedEnabled:    autoReseed,
 		reseedTimeout:        time.Second * time.Duration(reseedTimeout),
 		desiredInstanceCount: desiredInstanceCount,
 		launchChan:           make(chan struct{}, 2048),
@@ -297,16 +315,19 @@ func (s *EtcdScheduler) StatusUpdate(
 		mesos.TaskState_TASK_KILLED,
 		mesos.TaskState_TASK_ERROR,
 		mesos.TaskState_TASK_FAILED:
+		atomic.AddUint32(&s.Stats.FailedServers, 1)
 		// Pump the brakes so that we have time to deconfigure the lost node
 		// before adding a new one.  If we don't deconfigure first, we risk
 		// split brain.
 		s.PumpTheBrakes()
 		delete(s.running, node.Name)
+		delete(s.tasks, node.Name)
 		s.QueueLaunchAttempt()
 	case mesos.TaskState_TASK_RUNNING:
 		_, present := s.running[node.Name]
 		if !present {
 			s.running[node.Name] = node
+			s.tasks[node.Name] = status.TaskId
 		}
 
 		// During reconcilliation, we may find nodes with higher ID's due to ntp drift
@@ -366,7 +387,6 @@ func (s *EtcdScheduler) ExecutorLost(
 func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 	log.Infoln("Scheduler received error:", err)
 	if err == "Completed framework attempted to re-register" {
-		// TODO(tyler) automatically restart, don't expect this to be restarted externally
 		rpc.ClearZKState(s.ZkServers, s.ZkChroot, s.ClusterName)
 		log.Error(
 			"Removing reference to completed " +
@@ -521,6 +541,8 @@ func (s *EtcdScheduler) PeriodicLaunchRequestor() {
 			"running instances: %d desired: %d offers: %d",
 			len(s.running), s.desiredInstanceCount, s.offerCache.Len(),
 		)
+		atomic.StoreUint32(&s.Stats.RunningServers, uint32(len(s.running)))
+
 		if len(s.running) < s.desiredInstanceCount &&
 			s.state == Mutable {
 			s.QueueLaunchAttempt()
@@ -546,8 +568,6 @@ func (s *EtcdScheduler) Prune() error {
 			for k := range configuredMembers {
 				_, present := s.running[k]
 				if !present {
-					// TODO(tyler) only do this after we've allowed time to settle after
-					// reconciliation, or we will nuke valid nodes!
 					log.Warningf("Prune attempting to deconfigure unknown etcd "+
 						"instance: %s", k)
 					if err := rpc.RemoveInstance(s.running, k); err != nil {
@@ -610,8 +630,11 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 		return false
 	}
 
-	// TODO(tyler) verify that we will always hear back after putting something
-	// into pending, otherwise this will create a locked scheduler.
+	if atomic.LoadInt32(&s.reseeding) == reseedUnderway {
+		log.Infoln("Currently reseeding, not launching a task.")
+		return false
+	}
+
 	if len(s.pending) != 0 {
 		log.Infoln("Waiting on pending task to fail or submit status. " +
 			"Not launching until we hear back.")
@@ -631,8 +654,6 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 		return false
 	}
 	if len(members) == s.desiredInstanceCount {
-		// TODO(tyler) verify that the mismatched nodes are actually dead,
-		// and attempt to reconcile if not.
 		log.Errorf("Cluster is already configured for desired number of nodes.  " +
 			"Must deconfigure any dead nodes first or we may risk livelock.")
 		return false
@@ -640,10 +661,22 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 
 	err = s.healthCheck(s.running)
 	if err != nil {
+		atomic.StoreUint32(&s.Stats.IsHealthy, 0)
+		atomic.AddUint32(&s.Stats.ClusterLivelocks, 1)
 		// If we have been unhealthy for reseedTimeout seconds, it's time to reseed.
 		if s.livelockWindow != nil {
 			if time.Since(*s.livelockWindow) > s.reseedTimeout {
-				s.reseed(driver)
+				log.Errorf("Cluster has been livelocked for longer than %d seconds!",
+					s.reseedTimeout/time.Second)
+				if s.autoReseedEnabled {
+					log.Warningf("Initiating reseed...")
+					// Set scheduler to immutable so that shouldLaunch bails out almost
+					// instantly, preventing multiple reseed events from occurring concurrently
+					go s.reseedCluster(driver)
+				} else {
+					log.Warning("Automatic reseed disabled (--auto-reseed=false). " +
+						"Doing nothing.")
+				}
 				return false
 			}
 		} else {
@@ -655,6 +688,7 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 			"launch attempt for later: %s", err)
 		return false
 	}
+	atomic.StoreUint32(&s.Stats.IsHealthy, 1)
 
 	// reset livelock window because we're healthy
 	s.livelockWindow = nil
@@ -734,7 +768,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		Host:       *offer.Hostname,
 		RPCPort:    rpcPort,
 		ClientPort: clientPort,
-		HTTPPort:   httpPort,
+		ReseedPort: httpPort,
 		Type:       clusterType,
 		SlaveID:    offer.GetSlaveId().GetValue(),
 	}
@@ -789,6 +823,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	// calls this scheduler's StatusUpdate method, causing the test to deadlock.
 	s.mut.Unlock()
 
+	atomic.AddUint32(&s.Stats.LaunchedServers, 1)
 	driver.LaunchTasks(
 		[]*mesos.OfferID{offer.Id},
 		tasks,
@@ -798,20 +833,113 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	)
 }
 
-func (s *EtcdScheduler) catastropheRecovery(driver scheduler.SchedulerDriver) error {
-	// for each node in running, attempt to reseed.  if successful, set running to [node]
-	// and kill all others.
-	// if none are successful, we need to attempt to restart from last external backup
-	return nil
+func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+		log.Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		serializedStats, err := json.Marshal(s.Stats)
+		if err != nil {
+			log.Errorf("Failed to marshal stats json: %v", err)
+		}
+		fmt.Fprint(w, string(serializedStats))
+	})
+	mux.HandleFunc("/reseed", func(w http.ResponseWriter, r *http.Request) {
+		log.Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		go s.reseedCluster(driver)
+		fmt.Fprint(w, string("reseeding"))
+	})
+	mux.HandleFunc("/members", func(w http.ResponseWriter, r *http.Request) {
+		log.Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		running := []*config.Node{}
+		for _, r := range s.RunningCopy() {
+			running = append(running, r)
+		}
+		serializedNodes, err := json.Marshal(running)
+		if err != nil {
+			log.Errorf("Failed to marshal members json: %v", err)
+		}
+		fmt.Fprint(w, string(serializedNodes))
+	})
+	log.Infof("Admin HTTP interface Listening on port %d", port)
+	log.Error(http.ListenAndServe(fmt.Sprintf(":%d", port), mux))
+	if s.shutdown != nil {
+		s.shutdown()
+	}
 }
 
-func (s *EtcdScheduler) reseed(driver scheduler.SchedulerDriver) error {
-	// 1. restart node with --force-new-cluster
-	// 2. ensure it passes health check
-	// otherwise return err
-	// 3. ensure its member list only contains itself
-	// otherwise we're in a really messed up state
-	return nil
+func (s *EtcdScheduler) reseedCluster(driver scheduler.SchedulerDriver) {
+	// This CAS allows us to:
+	//	1. ensure non-concurrent execution
+	//	2. signal to shouldLaunch that we're already reseeding
+	if !atomic.CompareAndSwapInt32(&s.reseeding, notReseeding, reseedUnderway) {
+		return
+	}
+	atomic.AddUint32(&s.Stats.ClusterReseeds, 1)
+	candidates := rpc.RankReseedCandidates(s.running)
+	if len(candidates) == 0 {
+		log.Error("Failed to retrieve any candidates for reseeding! " +
+			"No recovery possible!")
+		driver.Abort()
+	}
+
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	s.state = Immutable
+
+	killable := []string{}
+	newSeed := ""
+	log.Infof("Candidates for reseed: %+v", candidates)
+	for _, node := range candidates {
+		// 1. restart node with --force-new-cluster
+		// 2. ensure it passes health check
+		// 3. ensure its member list only contains itself
+		// 4. kill everybody else
+		if newSeed != "" {
+			log.Warningf("Marking node %s from previous cluster as inferior", node.Node)
+			killable = append(killable, node.Node)
+		} else {
+			log.Warningf("Attempting to re-seed cluster with candidate %s "+
+				"with Raft index %d!", node.Node, node.RaftIndex)
+			if s.reseedNode(node.Node, driver) {
+				newSeed = node.Node
+				continue
+			}
+			// Mark this node as killable, as it did not become healthy on time.
+			log.Errorf("Failed reseed attempt on node %s, trying the next-best node.",
+				node.Node)
+			log.Warningf("Marking node %s from previous cluster as inferior", node.Node)
+			killable = append(killable, node.Node)
+		}
+	}
+	if newSeed != "" {
+		log.Warningf("We think we have a new healthy leader.")
+		for _, node := range killable {
+			driver.KillTask(s.tasks[node])
+		}
+	}
+	atomic.StoreInt32(&s.reseeding, notReseeding)
+	s.state = Mutable
+}
+
+func (s *EtcdScheduler) reseedNode(node string, driver scheduler.SchedulerDriver) bool {
+	// Try to reseed with this node
+	rpc.TriggerReseed(s.running[node])
+	// Wait for it to become healthy, but if it doesn't then kill it
+	backoff := 1
+	before := time.Now()
+	for time.Since(before) < s.reseedTimeout {
+		err := rpc.HealthCheck(map[string]*config.Node{
+			node: s.running[node],
+		})
+		if err == nil {
+			log.Warningf("Picked node %s to be the new seed!", node)
+			return true
+		}
+		log.Warningf("Reseed candidate %s not yet healthy.", node)
+		time.Sleep(time.Duration(backoff) * time.Second)
+		backoff = int(math.Min(float64(backoff<<1), 8))
+	}
+	return false
 }
 
 func parseOffer(offer *mesos.Offer) OfferResources {

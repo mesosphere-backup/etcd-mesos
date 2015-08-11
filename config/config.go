@@ -28,11 +28,10 @@ import (
 // Node represents an etcd node's configuration.
 type Node struct {
 	Name       string `json:"name"`
-	Task       string `json:"task"`
 	Host       string `json:"host"`
 	RPCPort    uint64 `json:"rpcPort"`
 	ClientPort uint64 `json:"clientPort"`
-	HTTPPort   uint64 `json:"httpPort"`
+	ReseedPort uint64 `json:"httpPort"`
 	Type       string `json:"type"`
 	SlaveID    string `json:"slaveID"`
 }
@@ -53,7 +52,7 @@ func Parse(text string) (*Node, error) {
 		return nil, ErrUnmarshal
 	} else if n.ClientPort, err = strconv.ParseUint(fs[3], 10, 64); err != nil {
 		return nil, ErrUnmarshal
-	} else if n.HTTPPort, err = strconv.ParseUint(fs[4], 10, 64); err != nil {
+	} else if n.ReseedPort, err = strconv.ParseUint(fs[4], 10, 64); err != nil {
 		return nil, ErrUnmarshal
 	}
 
@@ -64,5 +63,5 @@ func Parse(text string) (*Node, error) {
 // string representation of a Node.
 func (n Node) String() string {
 	return fmt.Sprintf(
-		"%s %s %d %d %d", n.Name, n.Host, n.RPCPort, n.ClientPort, n.HTTPPort)
+		"%s %s %d %d %d", n.Name, n.Host, n.RPCPort, n.ClientPort, n.ReseedPort)
 }

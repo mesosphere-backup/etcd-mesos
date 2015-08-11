@@ -869,8 +869,8 @@ func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
 
 func (s *EtcdScheduler) reseedCluster(driver scheduler.SchedulerDriver) {
 	// This CAS allows us to:
-	//	 1. ensure non-concurrent execution
-	//   2. signal to shouldLaunch that we're already reseeding
+	//	1. ensure non-concurrent execution
+	//	2. signal to shouldLaunch that we're already reseeding
 	if !atomic.CompareAndSwapInt32(&s.reseeding, notReseeding, reseedUnderway) {
 		return
 	}

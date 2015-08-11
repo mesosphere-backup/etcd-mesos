@@ -1,10 +1,17 @@
-default: clean restoredeps test build
+ORG_PATH="github.com/mesosphere"
+REPO_PATH="${ORG_PATH}/etcd-mesos"
+GOPATH=${PWD}/gopath
+
+default: clean deps build
 
 clean:
 	-rm bin/etcd-*
 
-restoredeps:
-	@godep restore
+deps:
+	rm -f ${GOPATH}/src/${REPO_PATH}
+	mkdir -p ${GOPATH}/src/${ORG_PATH}
+	ln -s ${PWD} ${GOPATH}/src/${REPO_PATH}
+	godep restore
 
 build: bin/etcd-mesos-executor bin/etcd-mesos-scheduler bin/etcd-mesos-proxy  bin/etcd
 

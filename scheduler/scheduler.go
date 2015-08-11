@@ -72,7 +72,6 @@ const (
 
 type EtcdScheduler struct {
 	Stats                  Stats
-	RestorePath            string
 	Master                 string
 	ExecutorPath           string
 	EtcdPath               string
@@ -98,6 +97,7 @@ type EtcdScheduler struct {
 	launchChan             chan struct{}
 	pauseChan              chan struct{}
 	chillSeconds           time.Duration
+	autoReseedEnabled      bool
 	reseedTimeout          time.Duration
 	livelockWindow         *time.Time
 	reseeding              int32
@@ -123,6 +123,7 @@ func NewEtcdScheduler(
 	desiredInstanceCount int,
 	chillSeconds int,
 	reseedTimeout int,
+	autoReseed bool,
 	executorUris []*mesos.CommandInfo_URI,
 	singleInstancePerSlave bool,
 ) *EtcdScheduler {
@@ -135,6 +136,7 @@ func NewEtcdScheduler(
 		executorUris:         executorUris,
 		ZkServers:            []string{},
 		chillSeconds:         time.Duration(chillSeconds),
+		autoReseedEnabled:    autoReseed,
 		reseedTimeout:        time.Second * time.Duration(reseedTimeout),
 		desiredInstanceCount: desiredInstanceCount,
 		launchChan:           make(chan struct{}, 2048),
@@ -385,7 +387,6 @@ func (s *EtcdScheduler) ExecutorLost(
 func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 	log.Infoln("Scheduler received error:", err)
 	if err == "Completed framework attempted to re-register" {
-		// TODO(tyler) automatically restart, don't expect this to be restarted externally
 		rpc.ClearZKState(s.ZkServers, s.ZkChroot, s.ClusterName)
 		log.Error(
 			"Removing reference to completed " +
@@ -567,8 +568,6 @@ func (s *EtcdScheduler) Prune() error {
 			for k := range configuredMembers {
 				_, present := s.running[k]
 				if !present {
-					// TODO(tyler) only do this after we've allowed time to settle after
-					// reconciliation, or we will nuke valid nodes!
 					log.Warningf("Prune attempting to deconfigure unknown etcd "+
 						"instance: %s", k)
 					if err := rpc.RemoveInstance(s.running, k); err != nil {
@@ -636,8 +635,6 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 		return false
 	}
 
-	// TODO(tyler) verify that we will always hear back after putting something
-	// into pending, otherwise this will create a locked scheduler.
 	if len(s.pending) != 0 {
 		log.Infoln("Waiting on pending task to fail or submit status. " +
 			"Not launching until we hear back.")
@@ -657,8 +654,6 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 		return false
 	}
 	if len(members) == s.desiredInstanceCount {
-		// TODO(tyler) verify that the mismatched nodes are actually dead,
-		// and attempt to reconcile if not.
 		log.Errorf("Cluster is already configured for desired number of nodes.  " +
 			"Must deconfigure any dead nodes first or we may risk livelock.")
 		return false
@@ -671,11 +666,17 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 		// If we have been unhealthy for reseedTimeout seconds, it's time to reseed.
 		if s.livelockWindow != nil {
 			if time.Since(*s.livelockWindow) > s.reseedTimeout {
-				log.Errorf("Cluster has been livelocked for longer than %d seconds! "+
-					"Initiating reseed...", s.reseedTimeout/time.Second)
-				// Set scheduler to immutable so that shouldLaunch bails out almost
-				// instantly, preventing multiple reseed events from occurring concurrently
-				go s.reseedCluster(driver)
+				log.Errorf("Cluster has been livelocked for longer than %d seconds!",
+					s.reseedTimeout/time.Second)
+				if s.autoReseedEnabled {
+					log.Warningf("Initiating reseed...")
+					// Set scheduler to immutable so that shouldLaunch bails out almost
+					// instantly, preventing multiple reseed events from occurring concurrently
+					go s.reseedCluster(driver)
+				} else {
+					log.Warning("Automatic reseed disabled (--auto-reseed=false). " +
+						"Doing nothing.")
+				}
 				return false
 			}
 		} else {
@@ -868,8 +869,8 @@ func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
 
 func (s *EtcdScheduler) reseedCluster(driver scheduler.SchedulerDriver) {
 	// This CAS allows us to:
-	//	 1. ensure non-concurrent execution
-	//   2. signal to shouldLaunch that we're already reseeding
+	//	1. ensure non-concurrent execution
+	//	2. signal to shouldLaunch that we're already reseeding
 	if !atomic.CompareAndSwapInt32(&s.reseeding, notReseeding, reseedUnderway) {
 		return
 	}

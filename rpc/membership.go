@@ -42,7 +42,6 @@ func ConfigureInstance(
 		log.Info("No running members to configure.  Skipping configuration.")
 		return nil
 	}
-	// TODO(tyler) invariant: all existing nodes must be healthy before adding a new one!
 	err := HealthCheck(running)
 	if err != nil {
 		log.Errorf("!!!! cluster failed health check: %+v", err)

@@ -1,9 +1,14 @@
-default: clean bin/etcd-mesos-executor bin/etcd-mesos-scheduler bin/etcd-mesos-proxy  bin/etcd
-
-run: clean bin/etcd-mesos-executor bin/etcd run-scheduler
+default: clean restoredeps test build
 
 clean:
 	-rm bin/etcd-*
+
+restoredeps:
+	@godep restore
+
+build: bin/etcd-mesos-executor bin/etcd-mesos-scheduler bin/etcd-mesos-proxy  bin/etcd
+
+run: clean bin/etcd-mesos-executor bin/etcd run-scheduler
 
 bin:
 	-mkdir bin

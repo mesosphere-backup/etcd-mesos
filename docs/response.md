@@ -3,7 +3,7 @@
 Information Sources:
 
 1. Mesos Master web UI: `http://<host of mesos master>:<port usually 5050>/#/frameworks`, go to the etcd-<cluster-name> framework and you will see the running tasks.  Tasks are named by `<etcd ident> <hostname> <etcd peer port> <etcd client port> <etcd-mesos reseed listener port>` 
-2. Etcd-mesos running etcd server info: `http://<host of etcd-mesos-scheduler>:<port, 12300 by default>/members` for a list of currently running members in a format similar to above
+2. Etcd-mesos list of running etcd servers: `http://<host of etcd-mesos-scheduler>:<port, 12300 by default>/members` for a list of currently running members in a format similar to above
 3. Etcd-mesos operational stats: `http://<host of etcd-mesos-scheduler>:<port, 12300 by default>/stats` for counters about running/lost nodes, livelock events, reseed attempts, whether the cluster is healthy in the scheduler's opinion (1 is healthy, 0 is unhealthy)
 4. Etcd health check: `etcdctl -C http://<one of the hosts from the member list above>:<etcd client port for it> cluster-health`
 5. Etcd membership check: `etcdctl -C http://<one of the hosts from the member list above>:<etcd client port for it> member list`

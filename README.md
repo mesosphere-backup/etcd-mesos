@@ -1,5 +1,10 @@
-# etcd-mesos
+# [ALPHA] etcd-mesos
 This is an Apache Mesos framework that runs an Etcd cluster.  It performs periodic health checks to ensure that the cluster has a stable leader and that raft is making progress.  It replaces nodes that die.
+
+Guides:
+* [Architecture](docs/architecture.md)
+* [Administration](docs/administration.md)
+* [Incident Response](docs/response.md)
 
 ## features
 
@@ -17,8 +22,6 @@ make
 ```
 
 The important binaries (`etcd-mesos-scheduler`, `etcd-mesos-proxy`, `etcd-mesos-executor`) are now present in the bin subdirectory.
-
-It is strongly recommended to persist your framework ID into zookeeper using the -zk-framework-persist flag.  This allows another instance of the etcd-mesos scheduler to take over during failover.  If this is not used, any etcd tasks started with a now-deceased etcd-mesos scheduler will be orphaned and must be manually terminated.  Further, it enforces uniquely named etcd clusters, which is extremely important if you are relying on systems that perform service discovery based on the name of a framework such as mesos-dns.
 
 A typical production invocation will look something like this:
 ```

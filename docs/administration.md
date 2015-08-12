@@ -28,10 +28,3 @@ A basic production invocation will look something like this:
 
 ## Monitoring
 
-## On-Call Response Guide
-Types of possible incidents:
-1. Etcd livelock
-2. Total Cluster Loss
-
-
-

@@ -28,6 +28,7 @@ A basic production invocation will look something like this:
 ```
 
 Important tunables for you to select:
+
 1. `-cluster-size` should be 3, 5, or (in rare low-write high-read cases) 7.  More nodes gets you more fault tolerance, better read performance, but worse write performance.
 2. `-auto-reseed` (defaults to true) determines whether etcd-mesos will perform automatic cluster reseeding when a livelock has been going on for a configurable window.  See the "Mesos Slave" section of the [architecture doc](architecture.md) for a more in-depth description of what reseeding entails.  The summary is: disable this if you are willing to see higher MTTR so that a human must always decide whether to reseed or not.
 

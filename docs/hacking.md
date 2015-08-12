@@ -13,7 +13,7 @@ while true; do rm -rf /tmp/mesos-slave4;  /usr/local/sbin/mesos-slave --port=505
 while true; do rm -rf /tmp/mesos-slave5;  /usr/local/sbin/mesos-slave --port=5055 --work_dir=/tmp/mesos-slave5 --resources="cpus:4;mem:4096;disk:4096;ports:[34000-35000]"  --master="zk://localhost:2181/mesos" --containerizers=docker,mesos; done
 ```
 
-Generally, I will run a local etcd-mesos scheduler by invoking `make run-scheduler-with-zk`.
+Generally, one will run a local etcd-mesos scheduler by invoking `make run-scheduler-with-zk`.
 
 #### Key Tests
 ###### loss of (n-1)/2 nodes (while scheduler has been killed)

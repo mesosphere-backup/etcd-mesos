@@ -24,9 +24,9 @@ Livelock occurs when a majority of the Etcd cluster has been lost.  This prevent
 
 If mesos tasks for the unreachable Etcd servers are in "TASK_LOST" state, you should not expect them to come back.
 
-If a majority of nodes have been lost, and the `--auto-reseed=false` flag has not been passed to the scheduler, the scheduler will perform an automatic reseed attempt after `reseed-timeout` seconds.
+If a majority of nodes have been lost, unless the `--auto-reseed=false` flag been passed to the scheduler, the scheduler will perform an automatic reseed attempt after `reseed-timeout` seconds.
 
-If this has been disabled, you may manually trigger an attempt by HTTP GET'ing the `/reseed` path as seen on #1 in "Tools for Interaction" above.
+If this has been disabled, you may manually trigger a reseed attempt by HTTP GET'ing the `/reseed` path as seen on #1 in "Tools for Interaction" above.
 
 #### Total Cluster Loss
 If all members of a cluster have been lost, and etcd was storing non-recomputable data, you must restore from a backup.  Periodic backups are recommended if you are using etcd to store data that cannot be recomputed/replaced/reconfigured in the event of loss.  Tools such as [etcd-dump](https://github.com/AaronO/etcd-dump) may be of use to you, but this is not currently handled by etcd-mesos.

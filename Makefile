@@ -1,5 +1,6 @@
 org_path="github.com/mesosphere"
 repo_path="${org_path}/etcd-mesos"
+mkfile_path	:= $(abspath $(lastword $(MAKEFILE_LIST)))
 current_dir	:= $(patsubst %/,%,$(dir $(mkfile_path)))
 GOPATH=${current_dir}/gopath
 

@@ -23,9 +23,9 @@
            |                     |                     |
            +------------etcd communication ------------+
                                  |
-                 +--------------------------------+
-                 |etcd-mesos-proxy, normal clients|
-                 +--------------------------------+
+                 +-------------------------------+
+                 |etcd-mesos-proxy, other clients|
+                 +-------------------------------+
 ```
 ### Responsibilities
 * zookeeper stores the host and port for the current mesos master, as well as the etcd-mesos-scheduler framework ID

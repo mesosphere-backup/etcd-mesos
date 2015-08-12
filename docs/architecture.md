@@ -40,12 +40,15 @@
 * If a mesos slave loses connectivity to ZK, it will continue running tasks until ___???___
 * If the etcd-mesos-scheduler loses connectivity to ZK, it will continue running as long as the master stays up.
 * Etcd continues to run until the slave ___???___
+
 #### Mesos Master
 * If a mesos slave loses connectivity to the mesos master, it will buffer task updates and wait for a master to become available again.  All status updates pass through the mesos master, so they will not reach the etcd-mesos scheduler until a new master comes online.
 * If the etcd-mesos-scheduler loses connectivity to the mesos master, it will put itself into an inactive state until it regains connectivity to a master.
 * Etcd continues to run until the slave ___???___
+
 #### `etcd-mesos-scheduler`
 * Mesos slaves will continue running (unmanaged) Etcd tasks for up to 1 week (overridable with the scheduler flag `--failover-timeout-seconds`) until the framework times out and transitions to the `COMPLETED` state.
+
 #### Mesos Slave
 * If a mesos slave is lost, the mesos master will send a message to the `etcd-mesos-scheduler` after ___???___.  The `etcd-mesos-scheduler` will remove that node from the configuration for surviving etcd nodes.  The next time the mesos master sends the `etcd-mesos-scheduler` a sufficient offer, a new etcd server will be started and the cluster will be configured for it to join.
 * If up to N/2-1 (where N is the `--cluster-size` argument passed to the scheduler) mesos slaves are lost, the above response occurs for each.

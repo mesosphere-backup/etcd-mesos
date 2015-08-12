@@ -35,6 +35,13 @@
 * etcd-mesos-proxy is a normal etcd proxy that has been configured to communicate with etcd running on mesos
 
 
+### Health Checking
+Etcd-mesos performs a health check that attempts to connect to each known Etcd server and query the current RAFT commit and leadership term indices.  If the RAFT commit index fails to increase, it means that the leader is not successfully performing AppendEntries RPC's.  If the RAFT leadership term is increasing, it means that nodes are failing to hear from a leader for long enough to trigger a leader election, which effectively dethrones the previous leader if a majority of live nodes receive the RequestVotes RPC from a candidate.
+
+(bonus: It's possible for network partitions to trigger this situation fairly easily, and if a partition arises between certain nodes but not between others, it's possible for candidates to alternatively dethrone each other until the partition heals.)
+
+No Etcd nodes will be launched unless a cluster has been determined to be in a healthy state.
+
 ### Failure Responses
 #### ZK
 * If a mesos master loses connectivity to ZK, it will commit suicide as it can no longer guarantee that it is the authoritative master.

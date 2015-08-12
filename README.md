@@ -49,4 +49,4 @@ etcd --proxy=on --discovery-srv=etcd-mycluster.mesos
 ```
 
 * Use another system that builds configuration from mesos's state.json endpoint.  This is how #1 works, so check out the code for it in `cmd/etcd-mesos-proxy/app.go` if you want to go this route.  Be sure to minimize calls to the master for state.json on larger clusters, as this becomes an expesive operation that can easily DDOS your master if you are not careful.
-* Membership may be queried from the `etcd-mesos-scheduler`'s 
+* Current membership may be queried from the `etcd-mesos-scheduler`'s `/members` http endpoint that listens on the `--admin-port` (default 23400)

@@ -29,6 +29,8 @@ A basic production invocation will look something like this:
 ## Monitoring
 The `etcd-mesos-scheduler` may be monitored by periodically querying the `/stats` endpoint (see HTTP Admin Interface below).  It is recommended that you periodically collect this in an external time-series database which is monitored by an alerting system.  Of particular interest are the counters for `failed_servers`, `cluster_livelocks`, `cluster_reseeds`, and `healthy`.  Healthy should be 1 if true, and 0 if the cluster is currently livelocked.
 
+See the [architecture doc](architecture.md) for a summary of how the `healthy` field is determined.
+
 ## HTTP Admin Interface
 The `etcd-mesos-scheduler` exposes a simple administration interface on the `--admin-port` (defaulting to 23400) which can handle:
 * `/stats` returns a JSON map of basic statistics.  Note that counters are reset when an `etcd-mesos-scheduler` process is started.

@@ -15,6 +15,8 @@ First, familiarize yourself with the [architecture doc](architecture.md).
 
 ## Deployment
 
+It is the operator's responsibility to ensure that a single etcd-mesos scheduler is running.  This may be facilitated through running it on top of something like Marathon.  It does not have extremely high HA requirements, but your cluster will not be able to recover from node failures when it is down, so it needs to be monitored.  If multiple instances are run, they will kick each other off the mesos master, preventing progress.  This can be improved and is being tracked: https://github.com/mesosphere/etcd-mesos/issues/28
+
 A basic production invocation will look something like this:
 ```
 /path/to/etcd-mesos-scheduler \
@@ -39,7 +41,7 @@ The `etcd-mesos-scheduler` may be monitored by periodically querying the `/stats
 See the [architecture doc](architecture.md) for a summary of how the `healthy` field is determined.
 
 ## HTTP Admin Interface
-The `etcd-mesos-scheduler` exposes a simple administration interface on the `--admin-port` (defaulting to 23400) which can handle:
+The `etcd-mesos-scheduler` exposes a simple administration interface on the `--admin-port` (defaulting to 23400) which responds to GET requests at these endpoints:
 * `/stats` returns a JSON map of basic statistics.  Note that counters are reset when an `etcd-mesos-scheduler` process is started.
 * `/membership` returns a JSON list of current etcd servers.
 * `/reseed` Manually triggers a cluster reseed.  Use extreme caution!

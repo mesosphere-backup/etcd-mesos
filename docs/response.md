@@ -22,8 +22,6 @@ Finding your data:
 #### Etcd livelock
 Livelock occurs when a majority of the Etcd cluster has been lost.  This prevents all writes and incremental membership changes to etcd.
 
-If mesos tasks for the unreachable Etcd servers are in "TASK_LOST" state, you should not expect them to come back.
-
 If a majority of nodes have been lost, unless the `--auto-reseed=false` flag been passed to the scheduler, the scheduler will perform an automatic reseed attempt after `reseed-timeout` seconds.
 
 If this has been disabled, you may manually trigger a reseed attempt by HTTP GET'ing the `/reseed` path as seen on #1 in "Tools for Interaction" above.

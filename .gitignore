@@ -1,4 +1,5 @@
 bin
+gopath
 etcd_executor
 etcd_scheduler
 

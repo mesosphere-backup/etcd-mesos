@@ -27,4 +27,13 @@ If a majority of nodes have been lost, unless the `--auto-reseed=false` flag bee
 If this has been disabled, you may manually trigger a reseed attempt by HTTP GET'ing the `/reseed` path as seen on #1 in "Tools for Interaction" above.
 
 #### Total Cluster Loss
-If all members of a cluster have been lost, and etcd was storing non-recomputable data, you must restore from a backup.  Periodic backups are recommended if you are using etcd to store data that cannot be recomputed/replaced/reconfigured in the event of loss.  Tools such as [etcd-dump](https://github.com/AaronO/etcd-dump) may be of use to you, but this is not currently handled by etcd-mesos.
+If all members of a cluster have been lost, and etcd was storing non-recomputable data, you must retrieve a previous replica's data from the mesos slave sandbox or restore from a previous backup.  Mesos tasks store their data in the mesos slave's work directory, but this discarded after some time, so you need to retrieve old data directories quickly.  Steps:
+The etcd-mesos scheduler locks when it detects a total cluster loss, preventing it from launching any more tasks.  If you require instant restoration of writes to a fresh cluster, restart the scheduler process.
+To restore data from a lost cluster:
+1. In the mesos UI (#1 in Information Sources above), find the etcd framework, and then the tasks that were lost.
+2. Log into a slave where they ran, and visit the directory shown at the top of the mesos UI page for the task
+3. Copy the etcd_data directory to a location outside of the mesos slave's work directory, as this directory will be destroyed automatically
+4. Start etcd on the default ports (it doesn't matter unless you're already running something on those ports) and supply `--data-dir=./etcd_data` and `--force-new-cluster` as arguments so that it ignores previous member information
+5. Use a tool like [etcd-backup](https://github.com/fanhattan/etcd-backup) to retrieve a remotely-restorable copy of the dataset
+6. Restart the etcd-mesos scheduler.  This will create a new cluster from scratch.
+7. Use the backup tool from #5 to restore the dataset onto the new cluster.

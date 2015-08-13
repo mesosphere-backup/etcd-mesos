@@ -349,7 +349,8 @@ func (s *EtcdScheduler) StatusUpdate(
 	}
 
 	if len(s.running) == 0 {
-		// TODO(tyler) logic for restoring from backup
+		log.Error("TOTAL CLUSTER LOSS!  LOCKING SCHEDULER, FOLLOW RESTORATION GUIDE AT https://github.com/mesosphere/etcd-mesos/blob/master/docs/response.md")
+		s.state = Immutable
 	}
 }
 

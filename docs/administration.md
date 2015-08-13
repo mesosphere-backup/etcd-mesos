@@ -45,3 +45,7 @@ The `etcd-mesos-scheduler` exposes a simple administration interface on the `--a
 * `/stats` returns a JSON map of basic statistics.  Note that counters are reset when an `etcd-mesos-scheduler` process is started.
 * `/membership` returns a JSON list of current etcd servers.
 * `/reseed` Manually triggers a cluster reseed.  Use extreme caution!
+
+## Backups
+Periodic backups are recommended if you are using etcd to store data that cannot be recomputed/replaced/reconfigured in the event of loss.  Tools such as [etcd-backup](https://github.com/fanhattan/etcd-backup) may be of use to you, but this is not currently handled by etcd-mesos.
+

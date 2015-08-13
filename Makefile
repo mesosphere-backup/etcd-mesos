@@ -2,7 +2,7 @@ org_path="github.com/mesosphere"
 repo_path="${org_path}/etcd-mesos"
 mkfile_path	:= $(abspath $(lastword $(MAKEFILE_LIST)))
 current_dir	:= $(patsubst %/,%,$(dir $(mkfile_path)))
-GOPATH=${current_dir}/gopath
+GOPATH=${current_dir}/Godeps/_workspace
 
 default: clean deps build
 
@@ -13,7 +13,6 @@ deps:
 	rm -f ${GOPATH}/src/${repo_path}
 	mkdir -p ${GOPATH}/src/${org_path}
 	ln -s ${current_dir} ${GOPATH}/src/${repo_path}
-	godep restore
 
 build: bin/etcd-mesos-executor bin/etcd-mesos-scheduler bin/etcd-mesos-proxy  bin/etcd
 

@@ -1,5 +1,10 @@
-# etcd-mesos
+# [ALPHA] etcd-mesos
 This is an Apache Mesos framework that runs an Etcd cluster.  It performs periodic health checks to ensure that the cluster has a stable leader and that raft is making progress.  It replaces nodes that die.
+
+Guides:
+* [Architecture](docs/architecture.md)
+* [Administration](docs/administration.md)
+* [Incident Response](docs/response.md)
 
 ## features
 
@@ -17,8 +22,6 @@ make
 ```
 
 The important binaries (`etcd-mesos-scheduler`, `etcd-mesos-proxy`, `etcd-mesos-executor`) are now present in the bin subdirectory.
-
-It is strongly recommended to persist your framework ID into zookeeper using the -zk-framework-persist flag.  This allows another instance of the etcd-mesos scheduler to take over during failover.  If this is not used, any etcd tasks started with a now-deceased etcd-mesos scheduler will be orphaned and must be manually terminated.  Further, it enforces uniquely named etcd clusters, which is extremely important if you are relying on systems that perform service discovery based on the name of a framework such as mesos-dns.
 
 A typical production invocation will look something like this:
 ```
@@ -45,5 +48,5 @@ etcd-mesos-proxy --master=zk://localhost:2181/mesos --cluster-name=mycluster
 etcd --proxy=on --discovery-srv=etcd-mycluster.mesos
 ```
 
-* Use another system that builds configuration from mesos's state.json endpoint.  This is how #1 works, so check out the code for it in `cmd/etcd-mesos-proxy/app.go` if you want to go this route.  Be sure to minimize calls to the master for state.json on larger clusters, as this becomes an expesive operation that can easily DDOS your master if you are not careful.
-
+* Use another system that builds configuration from mesos's state.json endpoint.  This is how #1 works, so check out the code for it in `cmd/etcd-mesos-proxy/app.go` if you want to go this route.  Be sure to minimize calls to the master for state.json on larger clusters, as this becomes an expensive operation that can easily DDOS your master if you are not careful.
+* Current membership may be queried from the `etcd-mesos-scheduler`'s `/members` http endpoint that listens on the `--admin-port` (default 23400)

@@ -47,7 +47,7 @@ import (
 const (
 	cpusPerTask    = 1
 	memPerTask     = 256
-	diskPerTask    = 1024
+	diskPerTask    = 4096
 	portsPerTask   = 3
 	notReseeding   = 0
 	reseedUnderway = 1

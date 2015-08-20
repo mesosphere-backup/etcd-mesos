@@ -95,6 +95,7 @@ type EtcdScheduler struct {
 	executorUris           []*mesos.CommandInfo_URI
 	offerCache             *offercache.OfferCache
 	launchChan             chan struct{}
+	diskPerTask            uint
 	pauseChan              chan struct{}
 	chillSeconds           time.Duration
 	autoReseedEnabled      bool
@@ -126,6 +127,7 @@ func NewEtcdScheduler(
 	autoReseed bool,
 	executorUris []*mesos.CommandInfo_URI,
 	singleInstancePerSlave bool,
+	diskPerTask uint,
 ) *EtcdScheduler {
 	return &EtcdScheduler{
 		state:                Immutable,
@@ -149,6 +151,7 @@ func NewEtcdScheduler(
 		shutdown:               func() { os.Exit(1) },
 		stateFunc:              rpc.GetState,
 		singleInstancePerSlave: singleInstancePerSlave,
+		diskPerTask:            diskPerTask,
 	}
 }
 

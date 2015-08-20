@@ -23,7 +23,6 @@ import (
 	"flag"
 	"io/ioutil"
 	"log"
-	"os"
 	"strings"
 	"syscall"
 	"text/template"
@@ -32,6 +31,7 @@ import (
 )
 
 type proxyArgs struct {
+	Bin            string
 	InitialCluster string
 	DataDir        string
 	ListenAddrs    string
@@ -39,7 +39,7 @@ type proxyArgs struct {
 }
 
 var cmdTemplate = template.Must(template.New("etcd-cmd").Parse(
-	`--proxy=on ` +
+	`{{.Bin}} --proxy=on ` +
 		`--data-dir={{.DataDir}} ` +
 		`--listen-client-urls={{.ListenAddrs}} ` +
 		`--advertise-client-urls={{.AdvertiseAddrs}} ` +
@@ -70,14 +70,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// HACK: this tricks etcd into avoiding a bug that prevents
-	// it from running in proxy mode.
-	// see: https://github.com/coreos/etcd/issues/3258
-	err = os.Mkdir(path+"/proxy", os.ModeDir|0777)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	// Pull current master from ZK if a ZK URI was provided
 	if strings.HasPrefix(*master, "zk://") {
 		log.Printf("Trying to connect to zk cluster %s", *master)
@@ -102,6 +94,7 @@ func main() {
 	// Format etcd proxy configuration options
 	var args bytes.Buffer
 	err = cmdTemplate.Execute(&args, proxyArgs{
+		Bin:            *etcdBin,
 		InitialCluster: strings.Join(peers, ","),
 		DataDir:        path,
 		ListenAddrs:    *clientUrls,

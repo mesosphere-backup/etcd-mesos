@@ -43,7 +43,7 @@ func (n nodeIndices) Len() int {
 }
 
 func (n nodeIndices) Less(i, j int) bool {
-	return n[i].RaftIndex < n[j].RaftIndex
+	return n[i].RaftIndex > n[j].RaftIndex
 }
 func (n nodeIndices) Swap(i, j int) {
 	n[i], n[j] = n[j], n[i]

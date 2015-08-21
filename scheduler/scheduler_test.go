@@ -41,9 +41,9 @@ func NewOffer(id string) *mesos.Offer {
 		SlaveId:     util.NewSlaveID("slave-" + id),
 		Hostname:    proto.String("localhost"),
 		Resources: []*mesos.Resource{
-			util.NewScalarResource("cpus", cpusPerTask),
-			util.NewScalarResource("mem", memPerTask),
-			util.NewScalarResource("disk", diskPerTask),
+			util.NewScalarResource("cpus", 1),
+			util.NewScalarResource("mem", 256),
+			util.NewScalarResource("disk", 4096),
 			util.NewRangesResource("ports", []*mesos.Value_Range{
 				util.NewValueRange(uint64(0), uint64(65535)),
 			}),
@@ -53,7 +53,7 @@ func NewOffer(id string) *mesos.Offer {
 
 func TestStartup(t *gotesting.T) {
 	mockdriver := &MockSchedulerDriver{}
-	testScheduler := NewEtcdScheduler(1, 0, 0, false, []*mesos.CommandInfo_URI{}, false, 4096)
+	testScheduler := NewEtcdScheduler(1, 0, 0, false, []*mesos.CommandInfo_URI{}, false, 4096, 1, 256)
 	testScheduler.running = map[string]*config.Node{
 		"etcd-1": nil,
 		"etcd-2": nil,
@@ -107,7 +107,7 @@ func TestStartup(t *gotesting.T) {
 }
 
 func TestReconciliationOnStartup(t *gotesting.T) {
-	testScheduler := NewEtcdScheduler(3, 0, 0, true, []*mesos.CommandInfo_URI{}, false, 4096)
+	testScheduler := NewEtcdScheduler(3, 0, 0, true, []*mesos.CommandInfo_URI{}, false, 4096, 1, 256)
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
 		scheduler:       testScheduler,
@@ -177,7 +177,7 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 }
 
 func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
-	testScheduler := NewEtcdScheduler(3, 0, 0, true, []*mesos.CommandInfo_URI{}, false, 4096)
+	testScheduler := NewEtcdScheduler(3, 0, 0, true, []*mesos.CommandInfo_URI{}, false, 4096, 1, 256)
 	testScheduler.masterInfo = util.NewMasterInfo("master-1", 0, 0)
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
@@ -252,9 +252,9 @@ func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 		[]*mesos.TaskInfo{
 			{
 				Resources: []*mesos.Resource{
-					util.NewScalarResource("cpus", cpusPerTask),
-					util.NewScalarResource("mem", memPerTask),
-					util.NewScalarResource("disk", diskPerTask),
+					util.NewScalarResource("cpus", 1),
+					util.NewScalarResource("mem", 256),
+					util.NewScalarResource("disk", 4096),
 					util.NewRangesResource("ports", []*mesos.Value_Range{
 						util.NewValueRange(uint64(0), uint64(2)),
 					}),
@@ -293,6 +293,8 @@ func TestScheduler(t *gotesting.T) {
 		[]*mesos.CommandInfo_URI{},
 		false,
 		4096,
+		1,
+		256,
 	)
 
 	// Skip initialization logic, tested in TestStartup.

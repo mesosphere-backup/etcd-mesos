@@ -69,8 +69,12 @@ func main() {
 			"cluster has been livelocked for -reseed-timeout seconds")
 	artifactPort :=
 		flag.Int("artifact-port", 12300, "Binding port for artifact server")
-	sandboxSize :=
-		flag.Uint("sandbox-size-limit", 4096, "Max size for the etcd mesos sandbox in MB")
+	sandboxDisk :=
+		flag.Float64("sandbox-disk-limit", 4096, "Max disk usage for the etcd mesos sandbox in MB")
+	sandboxCpu :=
+		flag.Float64("sandbox-cpu-limit", 4, "Max cpu usage for the etcd mesos sandbox in MB")
+	sandboxMem :=
+		flag.Float64("sandbox-mem-limit", 2048, "Max memory usage for the etcd mesos sandbox in MB")
 	executorPath :=
 		flag.String("executor-bin", "./bin/etcd-mesos-executor", "Path to executor binary")
 	etcdPath :=
@@ -154,7 +158,9 @@ func main() {
 		*autoReseed,
 		executorUris,
 		*singleInstancePerSlave,
-		*sandboxSize,
+		*sandboxDisk,
+		*sandboxCpu,
+		*sandboxMem,
 	)
 	etcdScheduler.ExecutorPath = *executorPath
 	etcdScheduler.Master = *master

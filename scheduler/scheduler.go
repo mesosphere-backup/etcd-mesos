@@ -45,9 +45,6 @@ import (
 )
 
 const (
-	cpusPerTask    = 1
-	memPerTask     = 256
-	diskPerTask    = 1024
 	portsPerTask   = 3
 	notReseeding   = 0
 	reseedUnderway = 1
@@ -95,6 +92,9 @@ type EtcdScheduler struct {
 	executorUris           []*mesos.CommandInfo_URI
 	offerCache             *offercache.OfferCache
 	launchChan             chan struct{}
+	diskPerTask            float64
+	cpusPerTask            float64
+	memPerTask             float64
 	pauseChan              chan struct{}
 	chillSeconds           time.Duration
 	autoReseedEnabled      bool
@@ -126,6 +126,9 @@ func NewEtcdScheduler(
 	autoReseed bool,
 	executorUris []*mesos.CommandInfo_URI,
 	singleInstancePerSlave bool,
+	diskPerTask float64,
+	cpusPerTask float64,
+	memPerTask float64,
 ) *EtcdScheduler {
 	return &EtcdScheduler{
 		state:                Immutable,
@@ -149,6 +152,9 @@ func NewEtcdScheduler(
 		shutdown:               func() { os.Exit(1) },
 		stateFunc:              rpc.GetState,
 		singleInstancePerSlave: singleInstancePerSlave,
+		diskPerTask:            diskPerTask,
+		cpusPerTask:            cpusPerTask,
+		memPerTask:             memPerTask,
 	}
 }
 
@@ -244,11 +250,11 @@ func (s *EtcdScheduler) ResourceOffers(
 			log.V(2).Infoln("-single-instance-per-slave is false, continuing.")
 		}
 
-		if resources.cpus < cpusPerTask {
+		if resources.cpus < s.cpusPerTask {
 			log.Infoln("Offer cpu is insufficient.")
 		}
 
-		if resources.mems < memPerTask {
+		if resources.mems < s.memPerTask {
 			log.Infoln("Offer memory is insufficient.")
 		}
 
@@ -256,14 +262,14 @@ func (s *EtcdScheduler) ResourceOffers(
 			log.Infoln("Offer ports are insuffient.")
 		}
 
-		if resources.disk < diskPerTask {
+		if resources.disk < s.diskPerTask {
 			log.Infoln("Offer disk is insufficient.")
 		}
 
-		if resources.cpus >= cpusPerTask &&
-			resources.mems >= memPerTask &&
+		if resources.cpus >= s.cpusPerTask &&
+			resources.mems >= s.memPerTask &&
 			totalPorts >= portsPerTask &&
-			resources.disk >= diskPerTask &&
+			resources.disk >= s.diskPerTask &&
 			s.offerCache.Push(offer) {
 
 			// golang for-loop variable reuse necessitates a copy here.
@@ -813,9 +819,9 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		SlaveId:  offer.SlaveId,
 		Executor: executor,
 		Resources: []*mesos.Resource{
-			util.NewScalarResource("cpus", cpusPerTask),
-			util.NewScalarResource("mem", memPerTask),
-			util.NewScalarResource("disk", diskPerTask),
+			util.NewScalarResource("cpus", s.cpusPerTask),
+			util.NewScalarResource("mem", s.memPerTask),
+			util.NewScalarResource("disk", s.diskPerTask),
 			util.NewRangesResource("ports", []*mesos.Value_Range{
 				util.NewValueRange(uint64(rpcPort), uint64(httpPort)),
 			}),

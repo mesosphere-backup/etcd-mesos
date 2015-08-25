@@ -42,8 +42,12 @@ func (n nodeIndices) Len() int {
 	return len(n)
 }
 
+// Less sorts in reverse-order so that
+// etcd nodes with the highest Raft index
+// will appear first in the reseed selection
+// slice.
 func (n nodeIndices) Less(i, j int) bool {
-	return n[i].RaftIndex < n[j].RaftIndex
+	return n[i].RaftIndex > n[j].RaftIndex
 }
 func (n nodeIndices) Swap(i, j int) {
 	n[i], n[j] = n[j], n[i]

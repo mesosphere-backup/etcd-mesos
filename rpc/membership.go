@@ -99,6 +99,79 @@ func ConfigureInstance(
 	return errors.New("Failed to configure cluster: no nodes reachable.")
 }
 
+func FixInstancePeers(
+	node *config.Node,
+) error {
+	log.Infof("trying to fix configuration for node %s", node.Name)
+
+	running := map[string]*config.Node{
+		"": node,
+	}
+
+	var outerErr error
+	backoff := 0
+	for retries := 0; retries < 5; retries++ {
+		if backoff != 0 {
+			log.Warningf("Failed to configure cluster for new instance.  "+
+				"Backing off for %d seconds and retrying.", backoff)
+		}
+		time.Sleep(time.Duration(backoff) * time.Second)
+		backoff = int(math.Max(math.Min(float64(backoff<<1), 8), 1))
+
+		outerErr = HealthCheck(running)
+		if outerErr != nil {
+			log.Errorf("!!!! cluster failed health check: %+v", outerErr)
+			continue
+		}
+
+		members, err := MemberList(running)
+		if err != nil {
+			log.Errorf("!!!! failed to get member list for reconfiguration: %+v", err)
+			outerErr = err
+			continue
+		}
+
+		ident, present := members[node.Name]
+		if !present {
+			log.Errorf("Failed to get ident for node %s!", node.Name)
+			outerErr = errors.New("Failed to get cluster identifier for node.")
+			continue
+		}
+
+		url := fmt.Sprintf(
+			"http://%s:%d/v2/members/%s",
+			node.Host,
+			node.ClientPort,
+			ident)
+		data := fmt.Sprintf(
+			`{"peerURLs": ["http://%s:%d"]}`,
+			node.Host,
+			node.RPCPort)
+
+		req, err := http.NewRequest("PUT", url, bytes.NewBuffer([]byte(data)))
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{
+			Timeout: time.Second * 5,
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Error(err)
+			outerErr = err
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 204 {
+			log.Info("successfully configured node peer urls")
+			return nil
+		}
+		log.Errorf("go unexpected response while fixing peer url: %s", resp.Status)
+	}
+	return errors.New("Failed to configure cluster: no nodes reachable.")
+}
+
 func MemberList(
 	running map[string]*config.Node,
 ) (nameToIdent map[string]string, err error) {

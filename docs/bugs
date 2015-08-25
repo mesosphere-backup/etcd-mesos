@@ -52,3 +52,5 @@ executors stay alive forever when master, slave, or etcd instance fails
 
 executors in staging state for a long time (don't send any updates) will just stay alive as zombies forever, consuming offers
 
+Prune sees a starting node in the member list with the name "" (empty string), doesn't recognize it, and tries to kill it
+  nodes were not successfully joining a reseedeg cluster due to failure to strip previous cluster metadata during reseed

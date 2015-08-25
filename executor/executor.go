@@ -152,6 +152,16 @@ func (e *Executor) LaunchTask(
 
 }
 
+func dumbExec(args string) {
+	log.Infof("running command %s", args)
+	argv := strings.Fields(args)
+	c := exec.Command(argv[0], argv[1:]...)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	c.Start()
+	c.Wait()
+}
+
 func (e *Executor) etcdHarness(
 	taskInfo *mesos.TaskInfo,
 	running []*config.Node,
@@ -211,6 +221,17 @@ func (e *Executor) etcdHarness(
 		case <-reseedChan:
 			// We've received an http request to reseed
 			close(killChan)
+
+			// Strip out existing membership info
+			dumbExec("./etcdctl backup " +
+				"--data-dir=./etcd_data " +
+				"--backup-dir=./etcd_backup")
+
+			// Move backup dir over old data dir
+			dumbExec("rm -rf ./etcd_data")
+			dumbExec("mv ./etcd_data ./etcd_backup")
+
+			// Restart etcd with --force-new-cluster=true
 			cmd, err = command(node)
 			if err != nil {
 				log.Errorf("Failed to create configuration for etcd: %v", err)

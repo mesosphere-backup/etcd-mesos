@@ -58,6 +58,7 @@ type Executor struct {
 	tasksLaunched int
 	shutdown      func()
 	launchTimeout time.Duration
+	shutdownChan  chan struct{}
 }
 
 type EtcdParams struct {
@@ -68,11 +69,16 @@ type EtcdParams struct {
 // New returns an an implementation of an etcd Mesos executor that runs the
 // given command when tasks are launched.
 func New(launchTimeout time.Duration) executor.Executor {
-	return &Executor{
+	e := &Executor{
 		cancelSuicide: make(chan struct{}),
-		shutdown:      func() { os.Exit(1) },
 		launchTimeout: launchTimeout,
+		shutdownChan:  make(chan struct{}),
 	}
+	e.shutdown = func() {
+		close(e.shutdownChan)
+		os.Exit(1)
+	}
+	return e
 }
 
 func (e *Executor) Registered(
@@ -180,7 +186,7 @@ func (e *Executor) etcdHarness(
 
 	runStatus := &mesos.TaskStatus{
 		TaskId: taskInfo.GetTaskId(),
-		State:  mesos.TaskState_TASK_RUNNING.Enum(),
+		State:  mesos.TaskState_TASK_STARTING.Enum(),
 	}
 	_, err = driver.SendStatusUpdate(runStatus)
 	if err != nil {
@@ -198,7 +204,9 @@ func (e *Executor) etcdHarness(
 	for {
 		killChan := make(chan struct{})
 		exitChan := make(chan struct{})
-		go runUntilClosed(cmd, killChan, exitChan)
+
+		go runUntilClosed(driver, taskInfo, cmd, killChan, exitChan)
+
 		select {
 		case <-reseedChan:
 			// We've received an http request to reseed
@@ -211,6 +219,9 @@ func (e *Executor) etcdHarness(
 			cmd += " --force-new-cluster=true"
 			// Restart the launch timeout window.
 			*before = time.Now()
+		case <-e.shutdownChan:
+			// The executor is shutting down, so we should kill etcd.
+			close(killChan)
 		case <-exitChan:
 			// We've exited early.  This may be because of a port being
 			// allocated to a previous instance after a reseed attempt.
@@ -231,6 +242,8 @@ func (e *Executor) etcdHarness(
 }
 
 func runUntilClosed(
+	driver executor.ExecutorDriver,
+	taskInfo *mesos.TaskInfo,
 	cmd string,
 	killChan chan struct{},
 	exitChan chan struct{},
@@ -252,6 +265,25 @@ func runUntilClosed(
 			close(exitChan)
 		}
 	}()
+
+	select {
+	case <-killChan:
+		command.Process.Kill()
+		return
+	case <-time.After(time.Duration(20) * time.Second):
+		// send TASK_RUNNING if we've stayed up for > 20s,
+		// as etcd should fail quickly if it's misconfigured.
+		runStatus := &mesos.TaskStatus{
+			TaskId: taskInfo.GetTaskId(),
+			State:  mesos.TaskState_TASK_RUNNING.Enum(),
+		}
+		_, err := driver.SendStatusUpdate(runStatus)
+		if err != nil {
+			log.Errorf("Got error sending status update, terminating: ", err)
+			handleFailure(driver, taskInfo)
+		}
+	}
+
 	<-killChan
 	command.Process.Kill()
 }
@@ -288,8 +320,11 @@ func (e *Executor) reseedListener(
 	}
 }
 
-func (e *Executor) KillTask(_ executor.ExecutorDriver, t *mesos.TaskID) {
-	log.Infof("KillTask: not implemented: %v", t)
+func (e *Executor) KillTask(driver executor.ExecutorDriver, t *mesos.TaskID) {
+	log.Infof("KillTask received!  Shutting down!")
+	if e.shutdown != nil {
+		e.shutdown()
+	}
 }
 
 func (e *Executor) FrameworkMessage(

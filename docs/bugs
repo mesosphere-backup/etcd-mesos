@@ -41,7 +41,7 @@ when executor comes up, it fails to configure but it still thinks it's ok:
   fixed - executor now bails out instantly if it can't reach the first node it reaches out to for initial configuration
 
 when reseeding, it never kills the inferior nodes
-  fixed - was pulling from incomplete list of libe candidates instead of all running (possibly unhealthy) tasks
+  fixed - was pulling from incomplete list of live candidates instead of all running (possibly unhealthy) tasks
 
 tasks in pending are not considered when enforcing node-uniqueness
   fixed - was not taking new "TASK_STARTING" nodes into account, and TASK_STARTING would clear from pending

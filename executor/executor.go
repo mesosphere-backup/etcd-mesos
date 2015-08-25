@@ -186,7 +186,7 @@ func (e *Executor) etcdHarness(
 
 	runStatus := &mesos.TaskStatus{
 		TaskId: taskInfo.GetTaskId(),
-		State:  mesos.TaskState_TASK_STARTING.Enum(),
+		State:  mesos.TaskState_TASK_RUNNING.Enum(),
 	}
 	_, err = driver.SendStatusUpdate(runStatus)
 	if err != nil {
@@ -265,24 +265,6 @@ func runUntilClosed(
 			close(exitChan)
 		}
 	}()
-
-	select {
-	case <-killChan:
-		command.Process.Kill()
-		return
-	case <-time.After(time.Duration(20) * time.Second):
-		// send TASK_RUNNING if we've stayed up for > 20s,
-		// as etcd should fail quickly if it's misconfigured.
-		runStatus := &mesos.TaskStatus{
-			TaskId: taskInfo.GetTaskId(),
-			State:  mesos.TaskState_TASK_RUNNING.Enum(),
-		}
-		_, err := driver.SendStatusUpdate(runStatus)
-		if err != nil {
-			log.Errorf("Got error sending status update, terminating: ", err)
-			handleFailure(driver, taskInfo)
-		}
-	}
 
 	<-killChan
 	command.Process.Kill()

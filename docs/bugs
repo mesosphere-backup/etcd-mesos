@@ -1,10 +1,10 @@
 This list is to provide a record of problems for tests to add coverage for if possible.
 
 does not always clear running instances, leading to it rejecting offers when it needs to heal
-  fixed?
+  fixed
 
 does not retrieve persisted framework id when clusterName = t3
-  fixed?
+  fixed
 
 does not deconfigure node before trying to add a new one, livelocking the cluster
   cause: was trying to deconfigure a nonexistent node id
@@ -14,13 +14,9 @@ when fw dies, then slave dies, then fw fails over, it will launch before removin
   cause: fw did not verify that defunct nodes are purged before launching
   fixed
 
-executors stay alive forever when master, slave, or etcd instance fails
-
 when all tasks are killed, scheduler blocks indefinitely while trying to deconfigure them
   should: verify that all etcd instances are unavailable, initiate HARD RESET (to be called by register and reregister as well)
   fixed - but should we block instead and await operator intervention?
-
-executors in staging state for a long time (don't send any updates) will just stay alive as zombies forever, consuming offers
 
 with chillfactor of 1, it's possible to spawn more than 1 instance per slave
   fixed
@@ -51,3 +47,8 @@ tasks possibly deconfigured incorrectly?  or they think they are during reseed?
 
 when starting on executor, it can crash if it starts with a previously-used name without the wal being present
   possibly related to above issue? waiting for resurfacing
+
+executors stay alive forever when master, slave, or etcd instance fails
+
+executors in staging state for a long time (don't send any updates) will just stay alive as zombies forever, consuming offers
+

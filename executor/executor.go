@@ -152,14 +152,14 @@ func (e *Executor) LaunchTask(
 
 }
 
-func dumbExec(args string) {
+func dumbExec(args string) error {
 	log.Infof("running command %s", args)
 	argv := strings.Fields(args)
 	c := exec.Command(argv[0], argv[1:]...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	c.Start()
-	c.Wait()
+	return c.Wait()
 }
 
 func (e *Executor) etcdHarness(
@@ -223,13 +223,27 @@ func (e *Executor) etcdHarness(
 			close(killChan)
 
 			// Strip out existing membership info
-			dumbExec("./etcdctl backup " +
+			err := dumbExec("./etcdctl backup " +
 				"--data-dir=./etcd_data " +
 				"--backup-dir=./etcd_backup")
+			if err != nil {
+				log.Errorf("Failed to run etcdctl backup!  No recovery possible. "+
+					"etcdctl exit code: %v", err)
+				handleFailure(driver, taskInfo)
+			}
 
 			// Move backup dir over old data dir
-			dumbExec("rm -rf ./etcd_data")
-			dumbExec("mv ./etcd_data ./etcd_backup")
+			err = dumbExec("rm -rf ./etcd_data")
+			if err != nil {
+				log.Errorf("Failed to remove old data dir: %v", err)
+				handleFailure(driver, taskInfo)
+			}
+
+			err = dumbExec("mv ./etcd_backup ./etcd_data")
+			if err != nil {
+				log.Errorf("Failed to mv restored data directory: %v", err)
+				handleFailure(driver, taskInfo)
+			}
 
 			// Restart etcd with --force-new-cluster=true
 			cmd, err = command(node)

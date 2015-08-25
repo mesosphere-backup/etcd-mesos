@@ -47,9 +47,7 @@ tasks in pending are not considered when enforcing node-uniqueness
   fixed - was not taking new "TASK_STARTING" nodes into account, and TASK_STARTING would clear from pending
 
 tasks possibly deconfigured incorrectly?  or they think they are during reseed?
-  during reseed the node being restarted with --force-new-cluster=true will actually start normally, and asynchronously remove members
-  from the member list AFTER possibly accepting connections from them.
-  needs fix: run etcdctl backup on the files first to strip out membership info
+  fixed - need to run etcdctl backup on data dir first to strip out old membership
 
 when starting on executor, it can crash if it starts with a previously-used name without the wal being present
-  ??????
+  possibly related to above issue? waiting for resurfacing

@@ -251,19 +251,19 @@ func (s *EtcdScheduler) ResourceOffers(
 		}
 
 		if resources.cpus < s.cpusPerTask {
-			log.Infoln("Offer cpu is insufficient.")
+			log.V(1).Infoln("Offer cpu is insufficient.")
 		}
 
 		if resources.mems < s.memPerTask {
-			log.Infoln("Offer memory is insufficient.")
+			log.V(1).Infoln("Offer memory is insufficient.")
 		}
 
 		if totalPorts < portsPerTask {
-			log.Infoln("Offer ports are insuffient.")
+			log.V(1).Infoln("Offer ports are insuffient.")
 		}
 
 		if resources.disk < s.diskPerTask {
-			log.Infoln("Offer disk is insufficient.")
+			log.V(1).Infoln("Offer disk is insufficient.")
 		}
 
 		if resources.cpus >= s.cpusPerTask &&
@@ -895,16 +895,17 @@ func (s *EtcdScheduler) reseedCluster(driver scheduler.SchedulerDriver) {
 		return
 	}
 	atomic.AddUint32(&s.Stats.ClusterReseeds, 1)
+
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	s.state = Immutable
+
 	candidates := rpc.RankReseedCandidates(s.running)
 	if len(candidates) == 0 {
 		log.Error("Failed to retrieve any candidates for reseeding! " +
 			"No recovery possible!")
 		driver.Abort()
 	}
-
-	s.mut.Lock()
-	defer s.mut.Unlock()
-	s.state = Immutable
 
 	killable := []string{}
 	newSeed := ""

@@ -216,7 +216,7 @@ func (e *Executor) etcdHarness(
 		killChan := make(chan struct{})
 		exitChan := make(chan struct{})
 
-		go runUntilClosed(driver, taskInfo, cmd, killChan, exitChan)
+		go runUntilClosed(cmd, killChan, exitChan)
 
 		if reseeding {
 			err := rpc.FixInstancePeers(node)
@@ -297,8 +297,6 @@ func stripPersistedMetadata(taskInfo *mesos.TaskInfo, driver executor.ExecutorDr
 }
 
 func runUntilClosed(
-	driver executor.ExecutorDriver,
-	taskInfo *mesos.TaskInfo,
 	cmd string,
 	killChan chan struct{},
 	exitChan chan struct{},

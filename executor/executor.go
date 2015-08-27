@@ -152,6 +152,16 @@ func (e *Executor) LaunchTask(
 
 }
 
+func dumbExec(args string) error {
+	log.Infof("running command %s", args)
+	argv := strings.Fields(args)
+	c := exec.Command(argv[0], argv[1:]...)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	c.Start()
+	return c.Wait()
+}
+
 func (e *Executor) etcdHarness(
 	taskInfo *mesos.TaskInfo,
 	running []*config.Node,
@@ -201,22 +211,40 @@ func (e *Executor) etcdHarness(
 	now := time.Now()
 	before := &now
 	delay := 0
+	reseeding := false
 	for {
 		killChan := make(chan struct{})
 		exitChan := make(chan struct{})
 
-		go runUntilClosed(driver, taskInfo, cmd, killChan, exitChan)
+		go runUntilClosed(cmd, killChan, exitChan)
+
+		if reseeding {
+			err := rpc.FixInstancePeers(node)
+			if err != nil {
+				log.Errorf("Failed to set instance peer nodes correctly: %v", err)
+			}
+		}
 
 		select {
 		case <-reseedChan:
 			// We've received an http request to reseed
 			close(killChan)
+
+			err := stripPersistedMetadata(taskInfo, driver)
+			if err != nil {
+				log.Errorf("Failed to reseed! %v", err)
+				handleFailure(driver, taskInfo)
+			}
+
 			cmd, err = command(node)
 			if err != nil {
 				log.Errorf("Failed to create configuration for etcd: %v", err)
 				handleFailure(driver, taskInfo)
 			}
-			cmd += " --force-new-cluster=true"
+			cmd += " --force-new-cluster"
+
+			reseeding = true
+
 			// Restart the launch timeout window.
 			*before = time.Now()
 		case <-e.shutdownChan:
@@ -241,9 +269,34 @@ func (e *Executor) etcdHarness(
 	}
 }
 
+func stripPersistedMetadata(taskInfo *mesos.TaskInfo, driver executor.ExecutorDriver) error {
+	// Strip out existing membership info
+	err := dumbExec("./etcdctl backup " +
+		"--data-dir=./etcd_data " +
+		"--backup-dir=./etcd_backup")
+	if err != nil {
+		log.Errorf("Failed to run etcdctl backup!  No recovery possible. "+
+			"etcdctl exit code: %v", err)
+		return err
+	}
+
+	// Move backup dir over old data dir
+	err = dumbExec("rm -rf ./etcd_data")
+	if err != nil {
+		log.Errorf("Failed to remove old data dir: %v", err)
+		return err
+	}
+
+	err = dumbExec("mv ./etcd_backup ./etcd_data")
+	if err != nil {
+		log.Errorf("Failed to mv restored data directory: %v", err)
+		return err
+	}
+
+	return nil
+}
+
 func runUntilClosed(
-	driver executor.ExecutorDriver,
-	taskInfo *mesos.TaskInfo,
 	cmd string,
 	killChan chan struct{},
 	exitChan chan struct{},

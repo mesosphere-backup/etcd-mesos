@@ -1,4 +1,6 @@
+Godeps/_workspace/src/github.com/mesosphere/etcd-mesos
 bin
+gopath
 etcd_executor
 etcd_scheduler
 

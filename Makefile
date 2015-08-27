@@ -1,9 +1,22 @@
-default: clean bin/etcd-mesos-executor bin/etcd-mesos-scheduler bin/etcd-mesos-proxy  bin/etcd
+org_path="github.com/mesosphere"
+repo_path="${org_path}/etcd-mesos"
+mkfile_path	:= $(abspath $(lastword $(MAKEFILE_LIST)))
+current_dir	:= $(patsubst %/,%,$(dir $(mkfile_path)))
+GOPATH=${current_dir}/Godeps/_workspace
 
-run: clean bin/etcd-mesos-executor bin/etcd run-scheduler
+default: clean deps build
 
 clean:
 	-rm bin/etcd-*
+
+deps:
+	rm -f ${GOPATH}/src/${repo_path}
+	mkdir -p ${GOPATH}/src/${org_path}
+	ln -s ${current_dir} ${GOPATH}/src/${repo_path}
+
+build: bin/etcd-mesos-executor bin/etcd-mesos-scheduler bin/etcd-mesos-proxy  bin/etcd
+
+run: clean bin/etcd-mesos-executor bin/etcd run-scheduler
 
 bin:
 	-mkdir bin
@@ -21,7 +34,7 @@ bin/etcd: bin
 	git submodule init
 	git submodule update
 	cd _vendor/coreos/etcd; ./build; mv bin/* ../../../bin/
-  
+
 run-scheduler:
 	go run -race cmd/etcd-mesos-scheduler/app.go -logtostderr=true
 

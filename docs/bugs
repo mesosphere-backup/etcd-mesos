@@ -1,10 +1,10 @@
 This list is to provide a record of problems for tests to add coverage for if possible.
 
 does not always clear running instances, leading to it rejecting offers when it needs to heal
-  fixed?
+  fixed
 
 does not retrieve persisted framework id when clusterName = t3
-  fixed?
+  fixed
 
 does not deconfigure node before trying to add a new one, livelocking the cluster
   cause: was trying to deconfigure a nonexistent node id
@@ -14,13 +14,9 @@ when fw dies, then slave dies, then fw fails over, it will launch before removin
   cause: fw did not verify that defunct nodes are purged before launching
   fixed
 
-executors stay alive forever when master, slave, or etcd instance fails
-
 when all tasks are killed, scheduler blocks indefinitely while trying to deconfigure them
   should: verify that all etcd instances are unavailable, initiate HARD RESET (to be called by register and reregister as well)
   fixed - but should we block instead and await operator intervention?
-
-executors in staging state for a long time (don't send any updates) will just stay alive as zombies forever, consuming offers
 
 with chillfactor of 1, it's possible to spawn more than 1 instance per slave
   fixed
@@ -47,9 +43,14 @@ tasks in pending are not considered when enforcing node-uniqueness
   fixed - was not taking new "TASK_STARTING" nodes into account, and TASK_STARTING would clear from pending
 
 tasks possibly deconfigured incorrectly?  or they think they are during reseed?
-  during reseed the node being restarted with --force-new-cluster=true will actually start normally, and asynchronously remove members
-  from the member list AFTER possibly accepting connections from them.
-  needs fix: run etcdctl backup on the files first to strip out membership info
+  fixed - need to run etcdctl backup on data dir first to strip out old membership
 
 when starting on executor, it can crash if it starts with a previously-used name without the wal being present
-  ??????
+  possibly related to above issue? waiting for resurfacing
+
+executors stay alive forever when master, slave, or etcd instance fails
+
+executors in staging state for a long time (don't send any updates) will just stay alive as zombies forever, consuming offers
+
+Prune sees a starting node in the member list with the name "" (empty string), doesn't recognize it, and tries to kill it
+  nodes were not successfully joining a reseedeg cluster due to failure to strip previous cluster metadata during reseed

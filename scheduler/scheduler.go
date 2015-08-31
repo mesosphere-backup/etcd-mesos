@@ -312,24 +312,38 @@ func (s *EtcdScheduler) StatusUpdate(
 	}
 	node.SlaveID = status.SlaveId.GetValue()
 
-	// If this task was pending, we now know it's running or dead.
-	delete(s.pending, node.Name)
-
 	switch status.GetState() {
 	case mesos.TaskState_TASK_LOST,
 		mesos.TaskState_TASK_FINISHED,
 		mesos.TaskState_TASK_KILLED,
 		mesos.TaskState_TASK_ERROR,
 		mesos.TaskState_TASK_FAILED:
+
 		atomic.AddUint32(&s.Stats.FailedServers, 1)
+
 		// Pump the brakes so that we have time to deconfigure the lost node
 		// before adding a new one.  If we don't deconfigure first, we risk
 		// split brain.
 		s.PumpTheBrakes()
+
+		// now we know this task is dead
+		delete(s.pending, node.Name)
 		delete(s.running, node.Name)
 		delete(s.tasks, node.Name)
+
 		s.QueueLaunchAttempt()
+
+		// TODO(tyler) do we want to lock if the first task fails?
+		if len(s.running) == 0 && s.state == Mutable {
+			log.Error("TOTAL CLUSTER LOSS!  LOCKING SCHEDULER, " +
+				"FOLLOW RESTORATION GUIDE AT " +
+				"https://github.com/mesosphere/" +
+				"etcd-mesos/blob/master/docs/response.md")
+			s.state = Immutable
+		}
+	case mesos.TaskState_TASK_STARTING:
 	case mesos.TaskState_TASK_RUNNING:
+		delete(s.pending, node.Name)
 		_, present := s.running[node.Name]
 		if !present {
 			s.running[node.Name] = node
@@ -352,11 +366,6 @@ func (s *EtcdScheduler) StatusUpdate(
 		}
 	default:
 		log.Warningf("Received unhandled task state: %+v", status.GetState())
-	}
-
-	if len(s.running) == 0 {
-		log.Error("TOTAL CLUSTER LOSS!  LOCKING SCHEDULER, FOLLOW RESTORATION GUIDE AT https://github.com/mesosphere/etcd-mesos/blob/master/docs/response.md")
-		s.state = Immutable
 	}
 }
 
@@ -416,7 +425,8 @@ func (s *EtcdScheduler) decline(
 	driver.DeclineOffer(
 		offer.Id,
 		&mesos.Filters{
-			RefuseSeconds: proto.Float64(float64(5 * s.chillSeconds)),
+			// Decline offers for 5 seconds.
+			RefuseSeconds: proto.Float64(float64(5)),
 		},
 	)
 }
@@ -575,12 +585,15 @@ func (s *EtcdScheduler) Prune() error {
 			for k := range configuredMembers {
 				_, present := s.running[k]
 				if !present {
-					log.Warningf("Prune attempting to deconfigure unknown etcd "+
-						"instance: %s", k)
-					if err := rpc.RemoveInstance(s.running, k); err != nil {
-						log.Errorf("Failed to remove instance: %s", err)
-					} else {
-						return nil
+					_, pending := s.pending[k]
+					if !pending {
+						log.Warningf("Prune attempting to deconfigure unknown etcd "+
+							"instance: %s", k)
+						if err := rpc.RemoveInstance(s.running, k); err != nil {
+							log.Errorf("Failed to remove instance: %s", err)
+						} else {
+							return nil
+						}
 					}
 				}
 			}
@@ -919,9 +932,13 @@ func (s *EtcdScheduler) reseedCluster(driver scheduler.SchedulerDriver) {
 		}
 	}
 	if newSeed != "" {
-		log.Warningf("We think we have a new healthy leader.")
-		for _, node := range killable {
-			driver.KillTask(s.tasks[node])
+		log.Warningf("We think we have a new healthy leader: %s", newSeed)
+		log.Warning("Terminating stale members of previous cluster.")
+		for node, taskID := range s.tasks {
+			if node != newSeed {
+				log.Warningf("Killing old node %s", node)
+				driver.KillTask(taskID)
+			}
 		}
 	}
 	atomic.StoreInt32(&s.reseeding, notReseeding)

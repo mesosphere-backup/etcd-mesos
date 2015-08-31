@@ -70,21 +70,21 @@ func ConfigureInstance(
 			resp, err := client.Do(req)
 			if err != nil {
 				log.Error(err)
-				continue
+				return err
 			}
 			defer resp.Body.Close()
 
 			body, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
 				log.Errorf("Problem configuring instance: %v", err)
-				continue
+				return err
 			}
 			var memberList config.ClusterMemberList
 			err = json.Unmarshal(body, &memberList)
 			if err != nil {
 				log.Errorf("Received unexpected response: %s", string(body))
 				log.Errorf("Failed to unmarshal json: %v", err)
-				continue
+				return err
 			}
 			log.Infof("Successfully configured new node: %+v", memberList)
 			return nil

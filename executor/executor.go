@@ -219,6 +219,7 @@ func (e *Executor) etcdHarness(
 		go runUntilClosed(cmd, killChan, exitChan)
 
 		if reseeding {
+			// properly set advertised peer URL's
 			err := rpc.FixInstancePeers(node)
 			if err != nil {
 				log.Errorf("Failed to set instance peer nodes correctly: %v", err)
@@ -281,13 +282,13 @@ func stripPersistedMetadata(taskInfo *mesos.TaskInfo, driver executor.ExecutorDr
 	}
 
 	// Move backup dir over old data dir
-	err = dumbExec("rm -rf ./etcd_data")
+	err = os.RemoveAll("./etcd_data")
 	if err != nil {
 		log.Errorf("Failed to remove old data dir: %v", err)
 		return err
 	}
 
-	err = dumbExec("mv ./etcd_backup ./etcd_data")
+	err = os.Rename("./etcd_backup", "./etcd_data")
 	if err != nil {
 		log.Errorf("Failed to mv restored data directory: %v", err)
 		return err

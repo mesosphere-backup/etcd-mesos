@@ -57,7 +57,11 @@ type Framework struct {
 	Tasks []Task `json:"tasks"`
 }
 
-// TODO(tyler) this does not contain every field reported by state.json
+// This is only a partial section of the returned JSON.
+// In the future we may need to add more fields if they
+// have a reason to be queried.  Hitting state.json is
+// an antipattern, but we only do it during framework
+// initialization.
 type MasterState struct {
 	Frameworks []Framework `json:"frameworks"`
 }

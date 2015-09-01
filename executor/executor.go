@@ -57,6 +57,7 @@ type Executor struct {
 	cancelSuicide chan struct{}
 	tasksLaunched int
 	shutdown      func()
+	exit          func()
 	launchTimeout time.Duration
 	shutdownChan  chan struct{}
 }
@@ -73,10 +74,10 @@ func New(launchTimeout time.Duration) executor.Executor {
 		cancelSuicide: make(chan struct{}),
 		launchTimeout: launchTimeout,
 		shutdownChan:  make(chan struct{}),
+		exit:          func() { os.Exit(1) },
 	}
 	e.shutdown = func() {
 		close(e.shutdownChan)
-		os.Exit(1)
 	}
 	return e
 }
@@ -216,7 +217,7 @@ func (e *Executor) etcdHarness(
 		killChan := make(chan struct{})
 		exitChan := make(chan struct{})
 
-		go runUntilClosed(cmd, killChan, exitChan)
+		go e.runUntilClosed(cmd, killChan, exitChan)
 
 		if reseeding {
 			// properly set advertised peer URL's
@@ -297,7 +298,7 @@ func stripPersistedMetadata(taskInfo *mesos.TaskInfo, driver executor.ExecutorDr
 	return nil
 }
 
-func runUntilClosed(
+func (e *Executor) runUntilClosed(
 	cmd string,
 	killChan chan struct{},
 	exitChan chan struct{},
@@ -322,6 +323,15 @@ func runUntilClosed(
 
 	<-killChan
 	command.Process.Kill()
+
+	// If we're shutting down, here's the place to exit.
+	select {
+	case <-e.shutdownChan:
+		if e.exit != nil {
+			e.exit()
+		}
+	default:
+	}
 }
 
 func handleFailure(

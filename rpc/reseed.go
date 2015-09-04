@@ -23,7 +23,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"sort"
-	"time"
 
 	"github.com/mesosphere/etcd-mesos/config"
 
@@ -62,6 +61,7 @@ func RankReseedCandidates(running map[string]*config.Node) []nodeIndex {
 			args.Host,
 			args.ClientPort,
 		)
+		// This has a 1s dial timeout, which is good for us here
 		client := etcd.NewClient([]string{url})
 		if ok := client.SyncCluster(); !ok {
 			log.Error("Could not establish connection "+
@@ -91,7 +91,7 @@ func TriggerReseed(node *config.Node) error {
 		node.ReseedPort,
 	)
 	client := http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: RPC_TIMEOUT,
 	}
 	resp, err := client.Get(url + "/reseed")
 	if err != nil {

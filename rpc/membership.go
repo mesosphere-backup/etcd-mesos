@@ -50,7 +50,7 @@ func ConfigureInstance(
 
 	backoff := 1
 	log.Infof("trying to reconfigure cluster for newInstance %+v", newInstance)
-	for retries := 0; retries < 5; retries++ {
+	for retries := 0; retries < RPC_RETRIES; retries++ {
 		for _, args := range running {
 			url := fmt.Sprintf(
 				"http://%s:%d/v2/members",
@@ -65,7 +65,7 @@ func ConfigureInstance(
 			req.Header.Set("Content-Type", "application/json")
 
 			client := &http.Client{
-				Timeout: time.Second * 5,
+				Timeout: RPC_TIMEOUT,
 			}
 			resp, err := client.Do(req)
 			if err != nil {
@@ -110,7 +110,7 @@ func FixInstancePeers(
 
 	var outerErr error
 	backoff := 0
-	for retries := 0; retries < 5; retries++ {
+	for retries := 0; retries < RPC_RETRIES; retries++ {
 		if backoff != 0 {
 			log.Warningf("Failed to configure cluster for new instance.  "+
 				"Backing off for %d seconds and retrying.", backoff)
@@ -152,7 +152,7 @@ func FixInstancePeers(
 		req.Header.Set("Content-Type", "application/json")
 
 		client := &http.Client{
-			Timeout: time.Second * 5,
+			Timeout: RPC_TIMEOUT,
 		}
 
 		resp, err := client.Do(req)
@@ -183,7 +183,7 @@ func MemberList(
 	}
 
 	backoff := 1
-	for retries := 0; retries < 5; retries++ {
+	for retries := 0; retries < RPC_RETRIES; retries++ {
 		for _, args := range running {
 			url := fmt.Sprintf(
 				"http://%s:%d/v2/members",
@@ -191,7 +191,7 @@ func MemberList(
 				args.ClientPort)
 
 			client := &http.Client{
-				Timeout: time.Second * 5,
+				Timeout: RPC_TIMEOUT,
 			}
 			resp, err := client.Get(url)
 			if err != nil {
@@ -246,7 +246,7 @@ func RemoveInstance(running map[string]*config.Node, task string) error {
 	ident := members[task]
 	backoff := 1
 	var outerErr error
-	for retries := 0; retries < 5; retries++ {
+	for retries := 0; retries < RPC_RETRIES; retries++ {
 		for id, args := range running {
 			if id == task {
 				continue
@@ -265,7 +265,7 @@ func RemoveInstance(running map[string]*config.Node, task string) error {
 			}
 
 			client := &http.Client{
-				Timeout: time.Second * 5,
+				Timeout: RPC_TIMEOUT,
 			}
 			resp, err := client.Do(req)
 			if err != nil {

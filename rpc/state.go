@@ -71,10 +71,10 @@ func GetState(master string) (*MasterState, error) {
 	log.Infof("Trying to get master state from %s/state.json", master)
 	var outerErr error
 	masterState := &MasterState{}
-	for retries := 0; retries < 5; retries++ {
+	for retries := 0; retries < RPC_RETRIES; retries++ {
 		for {
 			client := http.Client{
-				Timeout: 5 * time.Second,
+				Timeout: RPC_TIMEOUT,
 			}
 			resp, err := client.Get(fmt.Sprintf("%s/state.json", master))
 			if err != nil {

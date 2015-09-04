@@ -54,3 +54,7 @@ executors in staging state for a long time (don't send any updates) will just st
 
 Prune sees a starting node in the member list with the name "" (empty string), doesn't recognize it, and tries to kill it
   nodes were not successfully joining a reseedeg cluster due to failure to strip previous cluster metadata during reseed
+
+node mismatch: running node is not properly accounted for during reconciliation in certain situations (master failover) in running instance list
+  leads to failure to launch new nodes, as they all have improper config
+  eventually fixes itself, but spins on failure for a bit

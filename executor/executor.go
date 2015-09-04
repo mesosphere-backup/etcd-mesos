@@ -55,7 +55,6 @@ var cmdTemplate = template.Must(template.New("etcd-cmd").Parse(
 
 type Executor struct {
 	cancelSuicide chan struct{}
-	tasksLaunched int
 	shutdown      func()
 	exit          func()
 	launchTimeout time.Duration
@@ -133,7 +132,6 @@ func (e *Executor) LaunchTask(
 	taskInfo *mesos.TaskInfo,
 ) {
 	defer log.Flush()
-	e.tasksLaunched++
 	var running []*config.Node
 	err := json.Unmarshal(taskInfo.Data, &running)
 	if err != nil {

@@ -897,8 +897,13 @@ func (s *EtcdScheduler) reseedCluster(driver scheduler.SchedulerDriver) {
 	atomic.AddUint32(&s.Stats.ClusterReseeds, 1)
 
 	s.mut.Lock()
-	defer s.mut.Unlock()
 	s.state = Immutable
+
+	defer func() {
+		s.state = Mutable
+		atomic.StoreInt32(&s.reseeding, notReseeding)
+		s.mut.Unlock()
+	}()
 
 	candidates := rpc.RankReseedCandidates(s.running)
 	if len(candidates) == 0 {
@@ -942,8 +947,6 @@ func (s *EtcdScheduler) reseedCluster(driver scheduler.SchedulerDriver) {
 			}
 		}
 	}
-	atomic.StoreInt32(&s.reseeding, notReseeding)
-	s.state = Mutable
 }
 
 func (s *EtcdScheduler) reseedNode(node string, driver scheduler.SchedulerDriver) bool {

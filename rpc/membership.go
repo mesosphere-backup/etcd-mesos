@@ -163,7 +163,7 @@ func FixInstancePeers(
 		}
 		defer resp.Body.Close()
 
-		if resp.StatusCode == 204 {
+		if resp.StatusCode == http.StatusNoContent {
 			log.Info("successfully configured node peer urls")
 			return nil
 		}

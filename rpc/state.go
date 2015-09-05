@@ -57,7 +57,11 @@ type Framework struct {
 	Tasks []Task `json:"tasks"`
 }
 
-// TODO(tyler) this does not contain every field reported by state.json
+// This is only a partial section of the returned JSON.
+// In the future we may need to add more fields if they
+// have a reason to be queried.  Hitting state.json is
+// an antipattern, but we only do it during framework
+// initialization.
 type MasterState struct {
 	Frameworks []Framework `json:"frameworks"`
 }
@@ -67,10 +71,10 @@ func GetState(master string) (*MasterState, error) {
 	log.Infof("Trying to get master state from %s/state.json", master)
 	var outerErr error
 	masterState := &MasterState{}
-	for retries := 0; retries < 5; retries++ {
+	for retries := 0; retries < RPC_RETRIES; retries++ {
 		for {
 			client := http.Client{
-				Timeout: 5 * time.Second,
+				Timeout: RPC_TIMEOUT,
 			}
 			resp, err := client.Get(fmt.Sprintf("%s/state.json", master))
 			if err != nil {

@@ -55,8 +55,8 @@ var cmdTemplate = template.Must(template.New("etcd-cmd").Parse(
 
 type Executor struct {
 	cancelSuicide chan struct{}
-	tasksLaunched int
 	shutdown      func()
+	exit          func()
 	launchTimeout time.Duration
 	shutdownChan  chan struct{}
 }
@@ -73,10 +73,10 @@ func New(launchTimeout time.Duration) executor.Executor {
 		cancelSuicide: make(chan struct{}),
 		launchTimeout: launchTimeout,
 		shutdownChan:  make(chan struct{}),
+		exit:          func() { os.Exit(1) },
 	}
 	e.shutdown = func() {
 		close(e.shutdownChan)
-		os.Exit(1)
 	}
 	return e
 }
@@ -132,7 +132,6 @@ func (e *Executor) LaunchTask(
 	taskInfo *mesos.TaskInfo,
 ) {
 	defer log.Flush()
-	e.tasksLaunched++
 	var running []*config.Node
 	err := json.Unmarshal(taskInfo.Data, &running)
 	if err != nil {
@@ -150,6 +149,16 @@ func (e *Executor) LaunchTask(
 
 	go e.etcdHarness(taskInfo, running, driver, running[0])
 
+}
+
+func dumbExec(args string) error {
+	log.Infof("running command %s", args)
+	argv := strings.Fields(args)
+	c := exec.Command(argv[0], argv[1:]...)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	c.Start()
+	return c.Wait()
 }
 
 func (e *Executor) etcdHarness(
@@ -201,22 +210,41 @@ func (e *Executor) etcdHarness(
 	now := time.Now()
 	before := &now
 	delay := 0
+	reseeding := false
 	for {
 		killChan := make(chan struct{})
 		exitChan := make(chan struct{})
 
-		go runUntilClosed(driver, taskInfo, cmd, killChan, exitChan)
+		go e.runUntilClosed(cmd, killChan, exitChan)
+
+		if reseeding {
+			// properly set advertised peer URL's
+			err := rpc.FixInstancePeers(node)
+			if err != nil {
+				log.Errorf("Failed to set instance peer nodes correctly: %v", err)
+			}
+		}
 
 		select {
 		case <-reseedChan:
 			// We've received an http request to reseed
 			close(killChan)
+
+			err := stripPersistedMetadata(taskInfo, driver)
+			if err != nil {
+				log.Errorf("Failed to reseed! %v", err)
+				handleFailure(driver, taskInfo)
+			}
+
 			cmd, err = command(node)
 			if err != nil {
 				log.Errorf("Failed to create configuration for etcd: %v", err)
 				handleFailure(driver, taskInfo)
 			}
-			cmd += " --force-new-cluster=true"
+			cmd += " --force-new-cluster"
+
+			reseeding = true
+
 			// Restart the launch timeout window.
 			*before = time.Now()
 		case <-e.shutdownChan:
@@ -241,9 +269,34 @@ func (e *Executor) etcdHarness(
 	}
 }
 
-func runUntilClosed(
-	driver executor.ExecutorDriver,
-	taskInfo *mesos.TaskInfo,
+func stripPersistedMetadata(taskInfo *mesos.TaskInfo, driver executor.ExecutorDriver) error {
+	// Strip out existing membership info
+	err := dumbExec("./etcdctl backup " +
+		"--data-dir=./etcd_data " +
+		"--backup-dir=./etcd_backup")
+	if err != nil {
+		log.Errorf("Failed to run etcdctl backup!  No recovery possible. "+
+			"etcdctl exit code: %v", err)
+		return err
+	}
+
+	// Move backup dir over old data dir
+	err = os.RemoveAll("./etcd_data")
+	if err != nil {
+		log.Errorf("Failed to remove old data dir: %v", err)
+		return err
+	}
+
+	err = os.Rename("./etcd_backup", "./etcd_data")
+	if err != nil {
+		log.Errorf("Failed to mv restored data directory: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func (e *Executor) runUntilClosed(
 	cmd string,
 	killChan chan struct{},
 	exitChan chan struct{},
@@ -268,6 +321,15 @@ func runUntilClosed(
 
 	<-killChan
 	command.Process.Kill()
+
+	// If we're shutting down, here's the place to exit.
+	select {
+	case <-e.shutdownChan:
+		if e.exit != nil {
+			e.exit()
+		}
+	default:
+	}
 }
 
 func handleFailure(

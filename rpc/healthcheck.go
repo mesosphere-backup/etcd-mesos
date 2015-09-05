@@ -49,7 +49,7 @@ func HealthCheck(running map[string]*config.Node) error {
 			args.ClientPort,
 		)
 		client := http.Client{
-			Timeout: 5 * time.Second,
+			Timeout: RPC_TIMEOUT,
 		}
 		resp, err := client.Get(url + "/v2/stats/leader")
 		if err != nil {
@@ -80,6 +80,7 @@ func HealthCheck(running map[string]*config.Node) error {
 		return errors.ErrNoLeader
 	}
 
+	// This has a 1s dial timeout, which is ok for us
 	client := etcd.NewClient([]string{validEndpoint})
 	if ok := client.SyncCluster(); !ok {
 		log.Error("Could not establish connection "+

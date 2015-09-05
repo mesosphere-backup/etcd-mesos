@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	log "github.com/golang/glog"
 	mesos "github.com/mesos/mesos-go/mesosproto"
@@ -63,7 +62,7 @@ func PersistFrameworkID(
 	zkChroot string,
 	clusterName string,
 ) error {
-	c, _, err := zk.Connect(zkServers, time.Second*5)
+	c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
 	if err != nil {
 		return err
 	}
@@ -97,7 +96,7 @@ func GetPreviousFrameworkID(
 	zkChroot string,
 	clusterName string,
 ) (string, error) {
-	c, _, err := zk.Connect(zkServers, time.Second*5)
+	c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
 	if err != nil {
 		return "", err
 	}
@@ -111,7 +110,7 @@ func ClearZKState(
 	zkChroot string,
 	clusterName string,
 ) error {
-	c, _, err := zk.Connect(zkServers, time.Second*5)
+	c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
 	if err != nil {
 		return err
 	}
@@ -121,7 +120,7 @@ func ClearZKState(
 
 func GetMasterFromZK(zkURI string) (string, error) {
 	servers, chroot, err := ParseZKURI(zkURI)
-	c, _, err := zk.Connect(servers, time.Second*5)
+	c, _, err := zk.Connect(servers, RPC_TIMEOUT)
 	if err != nil {
 		return "", err
 	}

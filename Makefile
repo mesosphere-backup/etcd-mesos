@@ -34,7 +34,7 @@ bin/etcd: bin
 	git submodule init
 	git submodule update
 	cd _vendor/coreos/etcd; ./build; mv bin/* ../../../bin/
-  
+
 run-scheduler:
 	go run -race cmd/etcd-mesos-scheduler/app.go -logtostderr=true
 

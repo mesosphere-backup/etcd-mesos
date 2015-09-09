@@ -11,7 +11,7 @@
     "cpus": 0.2,
     "mem": 128.0,
     "instances": 1,
-    "ports": [0, 0],
+    "ports": [0, 0, 0],
     "env": {
       "CLUSTER_NAME":"1",
       "CLUSTER_SIZE":"5",

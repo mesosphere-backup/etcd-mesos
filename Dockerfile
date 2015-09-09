@@ -23,4 +23,5 @@ CMD sh -c '/work/bin/etcd-mesos-scheduler -alsologtostderr=true \
     -sandbox-cpu-limit=${CPU_LIMIT} \
     -sandbox-mem-limit=${MEM_LIMIT} \
     -admin-port=${PORT0} \
-    -driver-port=${PORT1}'
+    -driver-port=${PORT1} \
+    -artifact-port=${PORT2}'

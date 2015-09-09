@@ -1,0 +1,27 @@
+{
+    "id": "etcd-mesos-1",
+    "container": {
+        "docker": {
+            "image": "etcd-mesos"
+        },
+        "type": "DOCKER",
+        "volumes": []
+    },
+    "args": [],
+    "cpus": 0.2,
+    "mem": 128.0,
+    "instances": 1,
+    "ports": [0, 0],
+    "env": {
+      "CLUSTER_NAME":"1",
+      "CLUSTER_SIZE":"5",
+      "MESOS_MASTER":"zk://localhost:2181/mesos",
+      "ZK_PERSIST":"zk://localhost:2181/etcd-mesos",
+      "VERBOSITY":"1",
+      "AUTO_RESEED":"true",
+      "RESEED_TIMEOUT":"240",
+      "DISK_LIMIT":"4096",
+      "CPU_LIMIT":"4",
+      "MEM_LIMIT":"2048"
+    }
+}

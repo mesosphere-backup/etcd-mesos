@@ -46,8 +46,8 @@ type Task struct {
 	SlaveID  string `json:"slave_id"`
 	State    string `json:"state"`
 	Statuses []struct {
-		State     string `json:"state"`
-		Timestamp uint64 `json:"timestamp"`
+		State     string  `json:"state"`
+		Timestamp float64 `json:"timestamp"`
 	} `json:"statuses"`
 }
 
@@ -91,6 +91,7 @@ func GetState(master string) (*MasterState, error) {
 			if err == nil {
 				return masterState, nil
 			}
+			log.Error(err)
 		}
 		log.Warningf("Failed to get state.json: %v", outerErr)
 		time.Sleep(time.Duration(backoff) * time.Second)
@@ -104,6 +105,7 @@ func GetPeersFromState(state *MasterState, clusterName string) ([]string, error)
 	for _, f := range state.Frameworks {
 		if f.Name == "etcd-"+clusterName {
 			framework = &f
+			break
 		}
 	}
 	if framework == nil {

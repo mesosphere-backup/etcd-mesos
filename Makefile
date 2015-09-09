@@ -63,5 +63,8 @@ cover:
 test:
 	go test -race ./...
 
-docker:
+docker: default
 	docker build -t etcd-mesos .
+
+marathon: docker
+	curl -X POST http://localhost:8080/v2/apps -d @marathon.json -H "Content-type: application/json"

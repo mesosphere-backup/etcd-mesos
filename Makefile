@@ -14,7 +14,7 @@ deps:
 	mkdir -p ${GOPATH}/src/${org_path}
 	ln -s ${current_dir} ${GOPATH}/src/${repo_path}
 
-build: bin/etcd-mesos-executor bin/etcd-mesos-scheduler bin/etcd-mesos-proxy  bin/etcd
+build: bin/etcd-mesos-executor bin/etcd-mesos-scheduler bin/etcd-mesos-proxy bin/etcd
 
 run: clean bin/etcd-mesos-executor bin/etcd run-scheduler
 

@@ -25,4 +25,4 @@ CMD sh -xc '/work/bin/etcd-mesos-scheduler -alsologtostderr=true \
     -admin-port=${PORT0} \
     -driver-port=${PORT1} \
     -artifact-port=${PORT2} \
-    -framework-weburi=${WEBURI}'
+    -framework-weburi='"${WEBURI}"

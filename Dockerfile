@@ -1,5 +1,5 @@
 FROM debian
-ADD . /work
+ADD bin /work/bin
 WORKDIR /work
 ENV CLUSTER_NAME=1
 ENV CLUSTER_SIZE=5

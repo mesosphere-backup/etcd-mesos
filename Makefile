@@ -63,7 +63,13 @@ cover:
 test:
 	go test -race ./...
 
-docker: default
+docker_build:
+	docker run --rm -v "$$PWD":/go/src/github.com/mesosphere/etcd-mesos \
+		-e GOPATH=/go \
+		-w /go/src/github.com/mesosphere/etcd-mesos \
+		golang:1.4.2 make
+
+docker: docker_build
 	docker build -t etcd-mesos .
 
 marathon: docker

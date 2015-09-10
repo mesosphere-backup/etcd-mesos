@@ -99,6 +99,8 @@ func main() {
 			"-zk-framework-persist")
 	failoverTimeoutSeconds :=
 		flag.Float64("failover-timeout-seconds", 60*60*24*7, "Mesos framework failover timeout in seconds")
+	weburi := flag.String("framework-weburi", "", "A URI that points to a web-based interface for interacting with the framework.")
+
 	flag.Parse()
 
 	if *zkFrameworkPersist == "" && !*testMode {
@@ -183,6 +185,7 @@ func main() {
 		Name:            proto.String("etcd-" + etcdScheduler.ClusterName),
 		Checkpoint:      proto.Bool(true),
 		FailoverTimeout: proto.Float64(*failoverTimeoutSeconds),
+		WebuiUrl:        weburi,
 	}
 
 	cred := (*mesos.Credential)(nil)

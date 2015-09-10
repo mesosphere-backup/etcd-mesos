@@ -2,7 +2,8 @@
     "id": "etcd-mesos-1",
     "container": {
         "docker": {
-            "image": "etcd-mesos"
+            "image": "mesosphere/etcd-mesos:latest",
+            "forcePullImage": true
         },
         "type": "DOCKER",
         "volumes": []

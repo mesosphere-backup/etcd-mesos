@@ -127,6 +127,10 @@ func main() {
 		}
 	}
 
+	if *weburi == "" {
+		*weburi = fmt.Sprintf("http://%s:%d/stats", *address, *adminPort)
+	}
+
 	executorUris := []*mesos.CommandInfo_URI{}
 	execUri, err := etcdscheduler.ServeExecutorArtifact(*executorPath, *address, *artifactPort)
 	if err != nil {

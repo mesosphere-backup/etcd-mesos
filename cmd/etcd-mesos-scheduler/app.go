@@ -189,7 +189,7 @@ func main() {
 		Name:            proto.String("etcd-" + etcdScheduler.ClusterName),
 		Checkpoint:      proto.Bool(true),
 		FailoverTimeout: proto.Float64(*failoverTimeoutSeconds),
-		WebuiUrl:        weburi,
+		WebuiUrl:        proto.String(*weburi),
 	}
 
 	cred := (*mesos.Credential)(nil)

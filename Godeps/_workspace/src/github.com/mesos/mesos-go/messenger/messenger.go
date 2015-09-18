@@ -24,6 +24,7 @@ import (
 	"net"
 	"reflect"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -73,44 +74,80 @@ type MesosMessenger struct {
 	installedMessages map[string]reflect.Type
 	installedHandlers map[string]MessageHandler
 	stop              chan struct{}
+	stopOnce          sync.Once
 	tr                Transporter
 }
 
-// create a new default messenger (HTTP). If a non-nil, non-wildcard bindingAddress is
-// specified then it will be used for both the UPID and Transport binding address. Otherwise
-// hostname is resolved to an IP address and the UPID.Host is set to that address and the
-// bindingAddress is passed through to the Transport.
-func ForHostname(proc *process.Process, hostname string, bindingAddress net.IP, port uint16) (Messenger, error) {
+// ForHostname creates a new default messenger (HTTP), using UPIDBindingAddress to
+// determine the binding-address used for both the UPID.Host and Transport binding address.
+func ForHostname(proc *process.Process, hostname string, bindingAddress net.IP, port uint16, publishedAddress net.IP) (Messenger, error) {
 	upid := &upid.UPID{
 		ID:   proc.Label(),
 		Port: strconv.Itoa(int(port)),
 	}
-	if bindingAddress != nil && "0.0.0.0" != bindingAddress.String() {
-		upid.Host = bindingAddress.String()
-	} else {
-		ips, err := net.LookupIP(hostname)
+	host, err := UPIDBindingAddress(hostname, bindingAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	var publishedHost string
+	if publishedAddress != nil {
+		publishedHost, err = UPIDBindingAddress(hostname, publishedAddress)
 		if err != nil {
 			return nil, err
 		}
-		// try to find an ipv4 and use that
-		ip := net.IP(nil)
-		for _, addr := range ips {
-			if ip = addr.To4(); ip != nil {
-				break
-			}
+	}
+
+	if publishedHost != "" {
+		upid.Host = publishedHost
+	} else {
+		upid.Host = host
+	}
+
+	return NewHttpWithBindingAddress(upid, bindingAddress), nil
+}
+
+// UPIDBindingAddress determines the value of UPID.Host that will be used to build
+// a Transport. If a non-nil, non-wildcard bindingAddress is specified then it will be used
+// for both the UPID and Transport binding address. Otherwise hostname is resolved to an IP
+// address and the UPID.Host is set to that address and the bindingAddress is passed through
+// to the Transport.
+func UPIDBindingAddress(hostname string, bindingAddress net.IP) (string, error) {
+	upidHost := ""
+	if bindingAddress != nil && "0.0.0.0" != bindingAddress.String() {
+		upidHost = bindingAddress.String()
+	} else {
+		if hostname == "" || hostname == "0.0.0.0" {
+			return "", fmt.Errorf("invalid hostname (%q) specified with binding address %v", hostname, bindingAddress)
+		}
+		ip := net.ParseIP(hostname)
+		if ip != nil {
+			ip = ip.To4()
 		}
 		if ip == nil {
-			// no ipv4? best guess, just take the first addr
-			if len(ips) > 0 {
-				ip = ips[0]
-				log.Warningf("failed to find an IPv4 address for '%v', best guess is '%v'", hostname, ip)
-			} else {
-				return nil, fmt.Errorf("failed to determine IP address for host '%v'", hostname)
+			ips, err := net.LookupIP(hostname)
+			if err != nil {
+				return "", err
+			}
+			// try to find an ipv4 and use that
+			for _, addr := range ips {
+				if ip = addr.To4(); ip != nil {
+					break
+				}
+			}
+			if ip == nil {
+				// no ipv4? best guess, just take the first addr
+				if len(ips) > 0 {
+					ip = ips[0]
+					log.Warningf("failed to find an IPv4 address for '%v', best guess is '%v'", hostname, ip)
+				} else {
+					return "", fmt.Errorf("failed to determine IP address for host '%v'", hostname)
+				}
 			}
 		}
-		upid.Host = ip.String()
+		upidHost = ip.String()
 	}
-	return NewHttpWithBindingAddress(upid, bindingAddress), nil
+	return upidHost, nil
 }
 
 // NewMesosMessenger creates a new mesos messenger.
@@ -182,6 +219,8 @@ func (m *MesosMessenger) Route(ctx context.Context, upid *upid.UPID, msg proto.M
 		return m.Send(ctx, upid, msg)
 	}
 
+	// TODO(jdef) this has an unfortunate performance impact for self-messaging. implement
+	// something more reasonable here.
 	data, err := proto.Marshal(msg)
 	if err != nil {
 		return err
@@ -221,7 +260,11 @@ func (m *MesosMessenger) Start() error {
 				//TODO(jdef) should the driver abort in this case? probably
 				//since this messenger will never attempt to re-establish the
 				//transport
-				log.Error(err)
+				log.Errorln("transport stopped unexpectedly:", err.Error())
+			}
+			err = m.Stop()
+			if err != nil && err != errTerminal {
+				log.Errorln("failed to stop messenger cleanly: ", err.Error())
 			}
 		case <-m.stop:
 		}
@@ -231,12 +274,15 @@ func (m *MesosMessenger) Start() error {
 
 // Stop stops the messenger and clean up all the goroutines.
 func (m *MesosMessenger) Stop() error {
+	defer m.stopOnce.Do(func() { close(m.stop) })
+	log.Info("stopping messenger..")
+
 	//TODO(jdef) don't hardcode the graceful flag here
-	if err := m.tr.Stop(true); err != nil {
-		log.Errorf("Failed to stop the transporter: %v\n", err)
+
+	if err := m.tr.Stop(true); err != nil && err != errTerminal {
+		log.Errorf("failed to stop the transporter: %v\n", err)
 		return err
 	}
-	close(m.stop)
 	return nil
 }
 

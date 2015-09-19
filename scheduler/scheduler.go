@@ -295,15 +295,14 @@ func (s *EtcdScheduler) StatusUpdate(
 	driver scheduler.SchedulerDriver,
 	status *mesos.TaskStatus,
 ) {
+	s.mut.Lock()
+	defer s.mut.Unlock()
 	log.Infoln(
 		"Status update: task",
 		status.TaskId.GetValue(),
 		" is in state ",
 		status.State.Enum().String(),
 	)
-
-	s.mut.Lock()
-	defer s.mut.Unlock()
 
 	node, err := config.Parse(status.GetTaskId().GetValue())
 	if err != nil {
@@ -318,6 +317,10 @@ func (s *EtcdScheduler) StatusUpdate(
 		mesos.TaskState_TASK_KILLED,
 		mesos.TaskState_TASK_ERROR,
 		mesos.TaskState_TASK_FAILED:
+
+		log.Errorf("Task contraction: %+v", status.GetState())
+		log.Errorf("message: %s", status.GetMessage())
+		log.Errorf("reason: %+v", status.GetReason())
 
 		atomic.AddUint32(&s.Stats.FailedServers, 1)
 
@@ -334,6 +337,8 @@ func (s *EtcdScheduler) StatusUpdate(
 		s.QueueLaunchAttempt()
 
 		// TODO(tyler) do we want to lock if the first task fails?
+		// TODO(tyler) can we handle a total loss at reconciliation time,
+		//             when s.state == Immutable?
 		if len(s.running) == 0 && s.state == Mutable {
 			log.Error("TOTAL CLUSTER LOSS!  LOCKING SCHEDULER, " +
 				"FOLLOW RESTORATION GUIDE AT " +

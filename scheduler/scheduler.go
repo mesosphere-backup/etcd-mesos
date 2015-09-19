@@ -338,7 +338,7 @@ func (s *EtcdScheduler) StatusUpdate(
 
 		// TODO(tyler) do we want to lock if the first task fails?
 		// TODO(tyler) can we handle a total loss at reconciliation time,
-		//						 when s.state == Immutable?
+		//             when s.state == Immutable?
 		if len(s.running) == 0 && s.state == Mutable {
 			log.Error("TOTAL CLUSTER LOSS!  LOCKING SCHEDULER, " +
 				"FOLLOW RESTORATION GUIDE AT " +

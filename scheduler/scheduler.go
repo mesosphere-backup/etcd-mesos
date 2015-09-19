@@ -882,7 +882,7 @@ func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
 		fmt.Fprint(w, string(serializedNodes))
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		log.V(1).Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
 		if atomic.LoadUint32(&s.Stats.IsHealthy) == 1 {
 			fmt.Fprintf(w, "cluster is healthy\n")
 		} else {
@@ -892,7 +892,10 @@ func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
 	})
 
 	log.Infof("Admin HTTP interface Listening on port %d", port)
-	log.Error(http.ListenAndServe(fmt.Sprintf(":%d", port), mux))
+	err := http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
+	if err != nil {
+		log.Error(err)
+	}
 	if s.shutdown != nil {
 		s.shutdown()
 	}

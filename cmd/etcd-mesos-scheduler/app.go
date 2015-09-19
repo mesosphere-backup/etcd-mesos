@@ -188,6 +188,7 @@ func main() {
 	etcdScheduler.ExecutorPath = *executorPath
 	etcdScheduler.Master = *master
 	etcdScheduler.ClusterName = *clusterName
+	etcdScheduler.FrameworkName = *frameworkName
 	etcdScheduler.ZkConnect = *zkFrameworkPersist
 
 	fwinfo := &mesos.FrameworkInfo{

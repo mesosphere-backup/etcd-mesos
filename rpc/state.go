@@ -100,16 +100,16 @@ func GetState(master string) (*MasterState, error) {
 	return nil, outerErr
 }
 
-func GetPeersFromState(state *MasterState, clusterName string) ([]string, error) {
+func GetPeersFromState(state *MasterState, frameworkName string) ([]string, error) {
 	var framework *Framework
 	for _, f := range state.Frameworks {
-		if f.Name == "etcd-"+clusterName {
+		if f.Name == frameworkName {
 			framework = &f
 			break
 		}
 	}
 	if framework == nil {
-		return []string{}, errors.New("Could not find etcd-" + clusterName +
+		return []string{}, errors.New("Could not find etcd-" + frameworkName +
 			" in the mesos master's state.json")
 	}
 

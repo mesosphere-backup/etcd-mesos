@@ -73,6 +73,7 @@ type EtcdScheduler struct {
 	ExecutorPath           string
 	EtcdPath               string
 	ClusterName            string
+	FrameworkName          string
 	ZkConnect              string
 	ZkChroot               string
 	ZkServers              []string
@@ -488,7 +489,7 @@ func (s *EtcdScheduler) attemptMasterSync(driver scheduler.SchedulerDriver) {
 }
 
 func (s *EtcdScheduler) isInSync(masterState *rpc.MasterState) bool {
-	peers, err := rpc.GetPeersFromState(masterState, s.ClusterName)
+	peers, err := rpc.GetPeersFromState(masterState, s.FrameworkName)
 	if err != nil {
 		log.Errorf("Could not get peers from master state: %v", err)
 		return false

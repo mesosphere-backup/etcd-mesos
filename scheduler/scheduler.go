@@ -321,6 +321,7 @@ func (s *EtcdScheduler) StatusUpdate(
 
 		atomic.AddUint32(&s.Stats.FailedServers, 1)
 
+		// TODO(tyler) kill this
 		// Pump the brakes so that we have time to deconfigure the lost node
 		// before adding a new one.  If we don't deconfigure first, we risk
 		// split brain.
@@ -880,6 +881,16 @@ func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
 		}
 		fmt.Fprint(w, string(serializedNodes))
 	})
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		log.Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		if atomic.LoadUint32(&s.Stats.IsHealthy) == 1 {
+			fmt.Fprintf(w, "cluster is healthy\n")
+		} else {
+			http.Error(w, "500 internal server error: cluster not healthy.",
+				http.StatusInternalServerError)
+		}
+	})
+
 	log.Infof("Admin HTTP interface Listening on port %d", port)
 	log.Error(http.ListenAndServe(fmt.Sprintf(":%d", port), mux))
 	if s.shutdown != nil {

@@ -72,7 +72,6 @@ type EtcdScheduler struct {
 	Master                 string
 	ExecutorPath           string
 	EtcdPath               string
-	ClusterName            string
 	FrameworkName          string
 	ZkConnect              string
 	ZkChroot               string
@@ -179,7 +178,7 @@ func (s *EtcdScheduler) Registered(
 			frameworkID,
 			s.ZkServers,
 			s.ZkChroot,
-			s.ClusterName,
+			s.FrameworkName,
 		)
 		if err != nil && err != zk.ErrNodeExists {
 			log.Errorf("Failed to persist framework ID: %s", err)
@@ -413,7 +412,7 @@ func (s *EtcdScheduler) ExecutorLost(
 func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 	log.Infoln("Scheduler received error:", err)
 	if err == "Completed framework attempted to re-register" {
-		rpc.ClearZKState(s.ZkServers, s.ZkChroot, s.ClusterName)
+		rpc.ClearZKState(s.ZkServers, s.ZkChroot, s.FrameworkName)
 		log.Error(
 			"Removing reference to completed " +
 				"framework in zookeeper and dying.",

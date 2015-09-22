@@ -54,21 +54,15 @@ func main() {
 	etcdBin :=
 		flag.String("etcd-bin", "./bin/etcd", "Path to etcd binary to "+
 			"configure and run.")
-	clusterName :=
-		flag.String("cluster-name", "default", "Unique name of the etcd cluster "+
-			"to connect to, corresponding to the --cluster-name arg passed to the "+
-			"etcd-mesos-scheduler")
 	frameworkName :=
-		flag.String("framework-name", "", "Mesos framework name for this etcd cluster")
+		flag.String("framework-name", "etcd", "Unique name of the etcd cluster "+
+			"to connect to, corresponding to the --framework-name arg passed to the "+
+			"etcd-mesos-scheduler")
 	flag.String("data-dir", "default.etcd", "Path to the data directory.")
 	clientUrls :=
 		flag.String("listen-client-urls", "http://localhost:2379,http://localhost:4001",
 			"List of URLs to listen on for client traffic.")
 	flag.Parse()
-
-	if *frameworkName == "" {
-		*frameworkName = "etcd-" + *clusterName
-	}
 
 	// Generate a temporary directory for the proxy
 	path, err := ioutil.TempDir("", "etcd-mesos-proxy")

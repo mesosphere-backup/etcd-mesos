@@ -52,10 +52,8 @@ func parseIP(address string) net.IP {
 }
 
 func main() {
-	clusterName :=
-		flag.String("cluster-name", "default", "Unique name of this etcd cluster")
 	frameworkName :=
-		flag.String("framework-name", "", "Mesos framework name for this etcd cluster")
+		flag.String("framework-name", "etcd", "Unique name of this etcd cluster")
 	master :=
 		flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
 	zkFrameworkPersist :=
@@ -104,10 +102,6 @@ func main() {
 	weburi := flag.String("framework-weburi", "", "A URI that points to a web-based interface for interacting with the framework.")
 
 	flag.Parse()
-
-	if *frameworkName == "" {
-		*frameworkName = "etcd-" + *clusterName
-	}
 
 	if *zkFrameworkPersist == "" && !*testMode {
 		log.Fatal("No value provided for -zk-framework-persist ! This can be " +
@@ -187,7 +181,6 @@ func main() {
 	)
 	etcdScheduler.ExecutorPath = *executorPath
 	etcdScheduler.Master = *master
-	etcdScheduler.ClusterName = *clusterName
 	etcdScheduler.FrameworkName = *frameworkName
 	etcdScheduler.ZkConnect = *zkFrameworkPersist
 
@@ -221,7 +214,7 @@ func main() {
 		previous, err := rpc.GetPreviousFrameworkID(
 			zkServers,
 			zkChroot,
-			etcdScheduler.ClusterName,
+			etcdScheduler.FrameworkName,
 		)
 		if err != nil && err != zk.ErrNoNode {
 			log.Fatalf("Could not retrieve previous framework ID: %s", err)

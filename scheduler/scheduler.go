@@ -131,6 +131,9 @@ func NewEtcdScheduler(
 	memPerTask float64,
 ) *EtcdScheduler {
 	return &EtcdScheduler{
+		Stats: Stats{
+			IsHealthy: 1,
+		},
 		state:                Immutable,
 		running:              map[string]*config.Node{},
 		pending:              map[string]struct{}{},

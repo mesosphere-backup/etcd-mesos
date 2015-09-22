@@ -11,9 +11,9 @@ certification
 - [ ] Service MUST use standard DCOS packaging.
 - [x] Configuration MUST be via CLI parameters or environment variables.
 - [x] Scheduler MUST provide a health check.
-- [ ] Scheduler MUST support a custom FrameworkInfo.name.
+- [x] Scheduler MUST support a custom FrameworkInfo.name.
 - [ ] Scheduler MUST support a custom FrameworkInfo.role.
-- [ ] Scheduler SHOULD provide FrameworkInfo.webui_url
+- [x] Scheduler SHOULD provide FrameworkInfo.webui_url
 - [x] Scheduler MUST reconcile tasks during failover.
 - [x] Scheduler MUST use a reliable store for persistent state.
 - [x] Scheduler MUST distribute its own binaries for executor and tasks.
@@ -30,5 +30,5 @@ certification
 - [ ] Scheduler MUST validate version of Mesos.
 - [ ] Service MUST pass Mesosphere’s Service Resiliency Test.
 - [ ] Service MUST be uninstallable.
-- [ ] Service MUST be documented.
+- [x] Service MUST be documented.
 - [ ] Service MUST be supported.

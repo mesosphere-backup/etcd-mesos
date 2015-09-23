@@ -1,5 +1,6 @@
 FROM debian
 ADD bin /work/bin
+ADD static /work/static
 WORKDIR /work
 ENV FRAMEWORK_NAME=etcd
 ENV CLUSTER_SIZE=5

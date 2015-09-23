@@ -22,7 +22,7 @@ A basic production invocation will look something like this:
 /path/to/etcd-mesos-scheduler \
     -log_dir=/var/log/etcd-mesos \
     -master="zk://zk1:2181,zk2:2181,zk3:2181/mesos" \
-    -cluster-name="mycluster" \
+    -framework-name="etcd-mycluster" \
     -cluster-size=3 \
     -executor-bin=/path/to/etcd-mesos-executor \
     -etcd-bin=/path/to/etcd \

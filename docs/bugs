@@ -3,7 +3,7 @@ This list is to provide a record of problems for tests to add coverage for if po
 does not always clear running instances, leading to it rejecting offers when it needs to heal
   fixed
 
-does not retrieve persisted framework id when clusterName = t3
+does not retrieve persisted framework id when frameworkName = etcd-t3
   fixed
 
 does not deconfigure node before trying to add a new one, livelocking the cluster

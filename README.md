@@ -28,7 +28,7 @@ A typical production invocation will look something like this:
 /path/to/etcd-mesos-scheduler \
     -log_dir=/var/log/etcd-mesos \
     -master="zk://zk1:2181,zk2:2181,zk3:2181/mesos" \
-    -cluster-name="mycluster" \
+    -framework-name="etcd-mycluster" \
     -cluster-size=5 \
     -executor-bin=/path/to/etcd-mesos-executor \
     -etcd-bin=/path/to/etcd \
@@ -40,7 +40,7 @@ Options for finding your etcd nodes on mesos:
 
 * Run the included proxy binary locally on systems that use etcd.  It retrieves the etcd configuration from mesos and starts an etcd proxy node.  Note that this it not a good idea on clusters with lots of tasks running, as the master will iterate through each task and spit out a fairly large chunk of JSON, so this approach should be avoided in favor of mesos-dns on larger clusters. 
 ```
-etcd-mesos-proxy --master=zk://localhost:2181/mesos --cluster-name=mycluster
+etcd-mesos-proxy --master=zk://localhost:2181/mesos --framework-name=etcd-mycluster
 ```
 
 * Use mesos-dns, and have the etcd proxy use SRV discovery: 

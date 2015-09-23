@@ -60,7 +60,7 @@ func PersistFrameworkID(
 	fwid *mesos.FrameworkID,
 	zkServers []string,
 	zkChroot string,
-	clusterName string,
+	frameworkName string,
 ) error {
 	c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
 	if err != nil {
@@ -77,8 +77,8 @@ func PersistFrameworkID(
 	if err != nil && err != zk.ErrNodeExists {
 		return err
 	}
-	// attempt to write framework ID to <path> / <clusterName>
-	_, err = c.Create(zkChroot+"/"+clusterName,
+	// attempt to write framework ID to <path> / <frameworkName>
+	_, err = c.Create(zkChroot+"/"+frameworkName,
 		[]byte(fwid.GetValue()),
 		0,
 		zk.WorldACL(zk.PermAll))
@@ -94,28 +94,28 @@ func PersistFrameworkID(
 func GetPreviousFrameworkID(
 	zkServers []string,
 	zkChroot string,
-	clusterName string,
+	frameworkName string,
 ) (string, error) {
 	c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
 	if err != nil {
 		return "", err
 	}
 	defer c.Close()
-	rawData, _, err := c.Get(zkChroot + "/" + clusterName)
+	rawData, _, err := c.Get(zkChroot + "/" + frameworkName)
 	return string(rawData), err
 }
 
 func ClearZKState(
 	zkServers []string,
 	zkChroot string,
-	clusterName string,
+	frameworkName string,
 ) error {
 	c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
 	if err != nil {
 		return err
 	}
 	defer c.Close()
-	return c.Delete(zkChroot+"/"+clusterName, -1)
+	return c.Delete(zkChroot+"/"+frameworkName, -1)
 }
 
 func GetMasterFromZK(zkURI string) (string, error) {

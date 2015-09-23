@@ -20,7 +20,6 @@ package rpc
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"math"
@@ -109,8 +108,8 @@ func GetPeersFromState(state *MasterState, frameworkName string) ([]string, erro
 		}
 	}
 	if framework == nil {
-		return []string{}, errors.New("Could not find etcd-" + frameworkName +
-			" in the mesos master's state.json")
+		return []string{}, fmt.Errorf("Could not find framework %q in "+
+			"the mesos master's state.json", frameworkName)
 	}
 
 	peers := []string{}

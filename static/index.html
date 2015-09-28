@@ -37,13 +37,12 @@ function refreshStats() {
         );
         $("#stats-values").append(node_tr);
       }
-      setTimeout(refreshStats, 5000);
     },
     error:function(jqXHR, textStatus, errorThrown){
       console.log(errorThrown);
-      setTimeout(refreshStats, 5000);
     }
   });
+  setTimeout(refreshStats, 5000);
 }
 
 function refreshMembers() {
@@ -64,21 +63,17 @@ function refreshMembers() {
           $("#nodes-table").append(member_tr);
         }
       }
-      setTimeout(refreshMembers, 5000);
     },
     error:function(jqXHR, textStatus, errorThrown){
       console.log(errorThrown);
-      setTimeout(refreshMembers, 5000);
     }
   });
+  setTimeout(refreshMembers, 5000);
 }
 
 $(document).ready(function() {
   refreshStats();
   refreshMembers();
-
-  setTimeout(refreshStats, 5000);
-  setTimeout(refreshMembers, 5000);
 });
 </script>
 

@@ -28,8 +28,12 @@ function refreshStats() {
     success:function(stats, textStatus, jqXHR) {
       if (stats) {
         $("#stats-values").empty();
+        var health_cell = "<td class=\"success\">";
+        if (stats.healthy != 1) {
+          health_cell = "<td class=\"danger\">";
+        }
         var node_tr = $(
-            "<td>" + stats.healthy + "</td>" +
+            health_cell + stats.healthy + "</td>" +
             "<td>" + stats.running_servers + "</td>"+
             "<td>" + stats.failed_servers + "</td>"+
             "<td>" + stats.cluster_livelocks + "</td>"+
@@ -37,12 +41,13 @@ function refreshStats() {
         );
         $("#stats-values").append(node_tr);
       }
+      setTimeout(refreshStats, 5000);
     },
     error:function(jqXHR, textStatus, errorThrown){
       console.log(errorThrown);
+      setTimeout(refreshStats, 5000);
     }
   });
-  setTimeout(refreshStats, 5000);
 }
 
 function refreshMembers() {
@@ -63,12 +68,13 @@ function refreshMembers() {
           $("#nodes-table").append(member_tr);
         }
       }
+      setTimeout(refreshMembers, 5000);
     },
     error:function(jqXHR, textStatus, errorThrown){
       console.log(errorThrown);
+      setTimeout(refreshMembers, 5000);
     }
   });
-  setTimeout(refreshMembers, 5000);
 }
 
 $(document).ready(function() {

@@ -562,7 +562,13 @@ func (s *EtcdScheduler) PumpTheBrakes() {
 
 func (s *EtcdScheduler) PeriodicHealthChecker() {
 	for {
+		time.Sleep(5 * s.chillSeconds * time.Second)
 		nodes := s.RunningCopy()
+		if len(nodes) == 0 {
+			atomic.StoreUint32(&s.Stats.IsHealthy, 0)
+			continue
+		}
+
 		atomic.StoreUint32(&s.Stats.RunningServers, uint32(len(nodes)))
 		err := s.healthCheck(nodes)
 		if err != nil {
@@ -570,7 +576,6 @@ func (s *EtcdScheduler) PeriodicHealthChecker() {
 		} else {
 			atomic.StoreUint32(&s.Stats.IsHealthy, 1)
 		}
-		time.Sleep(5 * s.chillSeconds * time.Second)
 	}
 }
 

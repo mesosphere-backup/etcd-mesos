@@ -560,6 +560,27 @@ func (s *EtcdScheduler) PumpTheBrakes() {
 	}
 }
 
+func (s *EtcdScheduler) PeriodicHealthChecker() {
+	for {
+		time.Sleep(5 * s.chillSeconds * time.Second)
+		nodes := s.RunningCopy()
+
+		atomic.StoreUint32(&s.Stats.RunningServers, uint32(len(nodes)))
+
+		if len(nodes) == 0 {
+			atomic.StoreUint32(&s.Stats.IsHealthy, 0)
+			continue
+		}
+
+		err := s.healthCheck(nodes)
+		if err != nil {
+			atomic.StoreUint32(&s.Stats.IsHealthy, 0)
+		} else {
+			atomic.StoreUint32(&s.Stats.IsHealthy, 1)
+		}
+	}
+}
+
 func (s *EtcdScheduler) PeriodicLaunchRequestor() {
 	for {
 		s.mut.RLock()
@@ -864,8 +885,12 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 
 func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
 	mux := http.NewServeMux()
+
+	// index.html implicitly served at /
+	index := http.FileServer(http.Dir("static"))
+	mux.Handle("/", index)
 	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		log.V(2).Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
 		serializedStats, err := json.Marshal(s.Stats)
 		if err != nil {
 			log.Errorf("Failed to marshal stats json: %v", err)
@@ -878,7 +903,7 @@ func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
 		fmt.Fprint(w, string("reseeding"))
 	})
 	mux.HandleFunc("/members", func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		log.V(2).Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
 		running := []*config.Node{}
 		for _, r := range s.RunningCopy() {
 			running = append(running, r)
@@ -890,7 +915,7 @@ func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
 		fmt.Fprint(w, string(serializedNodes))
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		log.V(1).Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		log.V(2).Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
 		if atomic.LoadUint32(&s.Stats.IsHealthy) == 1 {
 			fmt.Fprintf(w, "cluster is healthy\n")
 		} else {

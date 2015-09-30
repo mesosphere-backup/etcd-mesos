@@ -128,7 +128,7 @@ func main() {
 	}
 
 	if *weburi == "" {
-		*weburi = fmt.Sprintf("http://%s:%d/stats", *address, *adminPort)
+		*weburi = fmt.Sprintf("http://%s:%d/", *address, *adminPort)
 	}
 
 	executorUris := []*mesos.CommandInfo_URI{}
@@ -250,6 +250,7 @@ func main() {
 	}
 
 	go etcdScheduler.SerialLauncher(driver)
+	go etcdScheduler.PeriodicHealthChecker()
 	go etcdScheduler.PeriodicLaunchRequestor()
 	go etcdScheduler.AdminHTTP(*adminPort, driver)
 

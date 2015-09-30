@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A distributed consistent key-value store for shared configuration and service discovery.">
+<meta name="author" content="Tyler Neely">
+
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
+
+<script>
+var statsEndpoint = "/stats";
+var membersEndpoint = "/members";
+
+function compare(a,b) {
+  if (a.name < b.name)
+    return -1;
+  if (a.name > b.name)
+    return 1;
+  return 0;
+}
+
+function refreshStats() {
+  $.ajax({url: statsEndpoint, dataType:'json', timeout:5000,
+    success:function(stats, textStatus, jqXHR) {
+      if (stats) {
+        $("#stats-values").empty();
+        var health_cell = "<td class=\"success\">";
+        if (stats.healthy != 1) {
+          health_cell = "<td class=\"danger\">";
+        }
+        var node_tr = $(
+            health_cell + stats.healthy + "</td>" +
+            "<td>" + stats.running_servers + "</td>"+
+            "<td>" + stats.failed_servers + "</td>"+
+            "<td>" + stats.cluster_livelocks + "</td>"+
+            "<td>" + stats.cluster_reseeds + "</td>"
+        );
+        $("#stats-values").append(node_tr);
+      }
+      setTimeout(refreshStats, 5000);
+    },
+    error:function(jqXHR, textStatus, errorThrown){
+      console.log(errorThrown);
+      setTimeout(refreshStats, 5000);
+    }
+  });
+}
+
+function refreshMembers() {
+  $.ajax({url: membersEndpoint, dataType:'json', timeout:5000,
+    success:function(members, textStatus, jqXHR) {
+      if (members) {
+        members.sort(compare);
+        $("#nodes").find("tr").remove();
+        for (var i = 0; i < members.length; i++) {
+          var member = members[i];
+          var member_tr = $(
+            "<tr id=\"values\">"+
+              "<td>" + member.name + "</td>" +
+              "<td>" + member.host + "</td>"+
+              "<td>" + member.rpcPort + "</td>"+
+              "<td>" + member.clientPort + "</td>"+
+            "</tr>");
+          $("#nodes-table").append(member_tr);
+        }
+      }
+      setTimeout(refreshMembers, 5000);
+    },
+    error:function(jqXHR, textStatus, errorThrown){
+      console.log(errorThrown);
+      setTimeout(refreshMembers, 5000);
+    }
+  });
+}
+
+$(document).ready(function() {
+  refreshStats();
+  refreshMembers();
+});
+</script>
+
+<title>
+  etcd-mesos
+</title>
+
+</head>
+<body>
+  <div class="container">
+    <div class="row">
+      <h1>etcd-mesos</h1>
+    </div>
+
+    <hr/>
+
+    <h3>stats</h3>
+    <div class="row">
+      <table class="table table-hover table-bordered" id="stats-table">
+        <thead>
+          <tr id="titles">
+            <th><strong>health</strong></th>
+            <th><strong>running nodes</strong></th>
+            <th><strong>failed nodes</strong></th>
+            <th><strong>cluster livelocks</strong></th>
+            <th><strong>cluster reseeds</strong></th>
+          </tr>
+        </thead>
+        <tbody id="stats">
+          <tr id="stats-values">
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>nodes</h3>
+    <div class="row">
+      <table class="table table-hover table-bordered" id="nodes-table">
+        <thead>
+          <tr id="titles">
+            <th><strong>id</strong></th>
+            <th><strong>host</strong></th>
+            <th><strong>peer port</strong></th>
+            <th><strong>client port</strong></th>
+          </tr>
+        </thead>
+        <tbody id="nodes">
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>

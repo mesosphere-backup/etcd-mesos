@@ -52,8 +52,8 @@ func parseIP(address string) net.IP {
 }
 
 func main() {
-	clusterName :=
-		flag.String("cluster-name", "default", "Unique name of this etcd cluster")
+	frameworkName :=
+		flag.String("framework-name", "etcd", "Unique name of this etcd cluster")
 	master :=
 		flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
 	zkFrameworkPersist :=
@@ -128,7 +128,7 @@ func main() {
 	}
 
 	if *weburi == "" {
-		*weburi = fmt.Sprintf("http://%s:%d/stats", *address, *adminPort)
+		*weburi = fmt.Sprintf("http://%s:%d/", *address, *adminPort)
 	}
 
 	executorUris := []*mesos.CommandInfo_URI{}
@@ -181,12 +181,12 @@ func main() {
 	)
 	etcdScheduler.ExecutorPath = *executorPath
 	etcdScheduler.Master = *master
-	etcdScheduler.ClusterName = *clusterName
+	etcdScheduler.FrameworkName = *frameworkName
 	etcdScheduler.ZkConnect = *zkFrameworkPersist
 
 	fwinfo := &mesos.FrameworkInfo{
 		User:            proto.String(""), // Mesos-go will fill in user.
-		Name:            proto.String("etcd-" + etcdScheduler.ClusterName),
+		Name:            proto.String(*frameworkName),
 		Checkpoint:      proto.Bool(true),
 		FailoverTimeout: proto.Float64(*failoverTimeoutSeconds),
 		WebuiUrl:        proto.String(*weburi),
@@ -214,7 +214,7 @@ func main() {
 		previous, err := rpc.GetPreviousFrameworkID(
 			zkServers,
 			zkChroot,
-			etcdScheduler.ClusterName,
+			etcdScheduler.FrameworkName,
 		)
 		if err != nil && err != zk.ErrNoNode {
 			log.Fatalf("Could not retrieve previous framework ID: %s", err)
@@ -250,6 +250,7 @@ func main() {
 	}
 
 	go etcdScheduler.SerialLauncher(driver)
+	go etcdScheduler.PeriodicHealthChecker()
 	go etcdScheduler.PeriodicLaunchRequestor()
 	go etcdScheduler.AdminHTTP(*adminPort, driver)
 

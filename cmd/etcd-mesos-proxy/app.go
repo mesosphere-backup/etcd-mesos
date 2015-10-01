@@ -54,9 +54,9 @@ func main() {
 	etcdBin :=
 		flag.String("etcd-bin", "./bin/etcd", "Path to etcd binary to "+
 			"configure and run.")
-	clusterName :=
-		flag.String("cluster-name", "default", "Unique name of the etcd cluster "+
-			"to connect to, corresponding to the --cluster-name arg passed to the "+
+	frameworkName :=
+		flag.String("framework-name", "etcd", "Unique name of the etcd cluster "+
+			"to connect to, corresponding to the --framework-name arg passed to the "+
 			"etcd-mesos-scheduler")
 	flag.String("data-dir", "default.etcd", "Path to the data directory.")
 	clientUrls :=
@@ -86,7 +86,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	peers, err := rpc.GetPeersFromState(state, *clusterName)
+	peers, err := rpc.GetPeersFromState(state, *frameworkName)
 	if err != nil {
 		log.Fatal(err)
 	}

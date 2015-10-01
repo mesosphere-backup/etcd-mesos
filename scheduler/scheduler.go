@@ -72,7 +72,7 @@ type EtcdScheduler struct {
 	Master                 string
 	ExecutorPath           string
 	EtcdPath               string
-	ClusterName            string
+	FrameworkName          string
 	ZkConnect              string
 	ZkChroot               string
 	ZkServers              []string
@@ -131,6 +131,9 @@ func NewEtcdScheduler(
 	memPerTask float64,
 ) *EtcdScheduler {
 	return &EtcdScheduler{
+		Stats: Stats{
+			IsHealthy: 1,
+		},
 		state:                Immutable,
 		running:              map[string]*config.Node{},
 		pending:              map[string]struct{}{},
@@ -175,7 +178,7 @@ func (s *EtcdScheduler) Registered(
 			frameworkID,
 			s.ZkServers,
 			s.ZkChroot,
-			s.ClusterName,
+			s.FrameworkName,
 		)
 		if err != nil && err != zk.ErrNodeExists {
 			log.Errorf("Failed to persist framework ID: %s", err)
@@ -295,15 +298,14 @@ func (s *EtcdScheduler) StatusUpdate(
 	driver scheduler.SchedulerDriver,
 	status *mesos.TaskStatus,
 ) {
+	s.mut.Lock()
+	defer s.mut.Unlock()
 	log.Infoln(
 		"Status update: task",
 		status.TaskId.GetValue(),
 		" is in state ",
 		status.State.Enum().String(),
 	)
-
-	s.mut.Lock()
-	defer s.mut.Unlock()
 
 	node, err := config.Parse(status.GetTaskId().GetValue())
 	if err != nil {
@@ -319,8 +321,13 @@ func (s *EtcdScheduler) StatusUpdate(
 		mesos.TaskState_TASK_ERROR,
 		mesos.TaskState_TASK_FAILED:
 
+		log.Errorf("Task contraction: %+v", status.GetState())
+		log.Errorf("message: %s", status.GetMessage())
+		log.Errorf("reason: %+v", status.GetReason())
+
 		atomic.AddUint32(&s.Stats.FailedServers, 1)
 
+		// TODO(tyler) kill this
 		// Pump the brakes so that we have time to deconfigure the lost node
 		// before adding a new one.  If we don't deconfigure first, we risk
 		// split brain.
@@ -334,6 +341,8 @@ func (s *EtcdScheduler) StatusUpdate(
 		s.QueueLaunchAttempt()
 
 		// TODO(tyler) do we want to lock if the first task fails?
+		// TODO(tyler) can we handle a total loss at reconciliation time,
+		//             when s.state == Immutable?
 		if len(s.running) == 0 && s.state == Mutable {
 			log.Error("TOTAL CLUSTER LOSS!  LOCKING SCHEDULER, " +
 				"FOLLOW RESTORATION GUIDE AT " +
@@ -403,7 +412,7 @@ func (s *EtcdScheduler) ExecutorLost(
 func (s *EtcdScheduler) Error(driver scheduler.SchedulerDriver, err string) {
 	log.Infoln("Scheduler received error:", err)
 	if err == "Completed framework attempted to re-register" {
-		rpc.ClearZKState(s.ZkServers, s.ZkChroot, s.ClusterName)
+		rpc.ClearZKState(s.ZkServers, s.ZkChroot, s.FrameworkName)
 		log.Error(
 			"Removing reference to completed " +
 				"framework in zookeeper and dying.",
@@ -488,7 +497,7 @@ func (s *EtcdScheduler) attemptMasterSync(driver scheduler.SchedulerDriver) {
 }
 
 func (s *EtcdScheduler) isInSync(masterState *rpc.MasterState) bool {
-	peers, err := rpc.GetPeersFromState(masterState, s.ClusterName)
+	peers, err := rpc.GetPeersFromState(masterState, s.FrameworkName)
 	if err != nil {
 		log.Errorf("Could not get peers from master state: %v", err)
 		return false
@@ -548,6 +557,27 @@ func (s *EtcdScheduler) PumpTheBrakes() {
 	case s.pauseChan <- struct{}{}:
 	default:
 		log.Warning("pauseChan is full!")
+	}
+}
+
+func (s *EtcdScheduler) PeriodicHealthChecker() {
+	for {
+		time.Sleep(5 * s.chillSeconds * time.Second)
+		nodes := s.RunningCopy()
+
+		atomic.StoreUint32(&s.Stats.RunningServers, uint32(len(nodes)))
+
+		if len(nodes) == 0 {
+			atomic.StoreUint32(&s.Stats.IsHealthy, 0)
+			continue
+		}
+
+		err := s.healthCheck(nodes)
+		if err != nil {
+			atomic.StoreUint32(&s.Stats.IsHealthy, 0)
+		} else {
+			atomic.StoreUint32(&s.Stats.IsHealthy, 1)
+		}
 	}
 }
 
@@ -855,8 +885,12 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 
 func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
 	mux := http.NewServeMux()
+
+	// index.html implicitly served at /
+	index := http.FileServer(http.Dir("static"))
+	mux.Handle("/", index)
 	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		log.V(2).Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
 		serializedStats, err := json.Marshal(s.Stats)
 		if err != nil {
 			log.Errorf("Failed to marshal stats json: %v", err)
@@ -869,7 +903,7 @@ func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
 		fmt.Fprint(w, string("reseeding"))
 	})
 	mux.HandleFunc("/members", func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		log.V(2).Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
 		running := []*config.Node{}
 		for _, r := range s.RunningCopy() {
 			running = append(running, r)
@@ -880,8 +914,21 @@ func (s *EtcdScheduler) AdminHTTP(port int, driver scheduler.SchedulerDriver) {
 		}
 		fmt.Fprint(w, string(serializedNodes))
 	})
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		log.V(2).Infof("Admin HTTP received %s %s", r.Method, r.URL.Path)
+		if atomic.LoadUint32(&s.Stats.IsHealthy) == 1 {
+			fmt.Fprintf(w, "cluster is healthy\n")
+		} else {
+			http.Error(w, "500 internal server error: cluster not healthy.",
+				http.StatusInternalServerError)
+		}
+	})
+
 	log.Infof("Admin HTTP interface Listening on port %d", port)
-	log.Error(http.ListenAndServe(fmt.Sprintf(":%d", port), mux))
+	err := http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
+	if err != nil {
+		log.Error(err)
+	}
 	if s.shutdown != nil {
 		s.shutdown()
 	}

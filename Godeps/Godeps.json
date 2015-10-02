@@ -12,23 +12,23 @@
 		},
 		{
 			"ImportPath": "github.com/coreos/etcd/etcdserver/etcdhttp/httptypes",
-			"Comment": "v2.1.0-alpha.0-207-g1403783",
-			"Rev": "140378332656bdfd3a50859512a8141b05749e3a"
+			"Comment": "v2.2.0",
+			"Rev": "e4561dd8cfb1163fb51afceca9c78aa89398e731"
 		},
 		{
 			"ImportPath": "github.com/coreos/etcd/etcdserver/stats",
-			"Comment": "v2.1.0-alpha.0-207-g1403783",
-			"Rev": "140378332656bdfd3a50859512a8141b05749e3a"
+			"Comment": "v2.2.0",
+			"Rev": "e4561dd8cfb1163fb51afceca9c78aa89398e731"
 		},
 		{
 			"ImportPath": "github.com/coreos/etcd/pkg/types",
-			"Comment": "v2.1.0-alpha.0-207-g1403783",
-			"Rev": "140378332656bdfd3a50859512a8141b05749e3a"
+			"Comment": "v2.2.0",
+			"Rev": "e4561dd8cfb1163fb51afceca9c78aa89398e731"
 		},
 		{
 			"ImportPath": "github.com/coreos/etcd/raft",
-			"Comment": "v2.1.0-alpha.0-207-g1403783",
-			"Rev": "140378332656bdfd3a50859512a8141b05749e3a"
+			"Comment": "v2.2.0",
+			"Rev": "e4561dd8cfb1163fb51afceca9c78aa89398e731"
 		},
 		{
 			"ImportPath": "github.com/coreos/go-etcd/etcd",

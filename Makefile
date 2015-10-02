@@ -4,6 +4,7 @@ mkfile_path	:= $(abspath $(lastword $(MAKEFILE_LIST)))
 current_dir	:= $(patsubst %/,%,$(dir $(mkfile_path)))
 GOPATH=${current_dir}/Godeps/_workspace
 DOCKER_ORG=mesosphere
+VERSION=0.1.0
 
 default: clean deps build
 
@@ -71,7 +72,7 @@ docker_build:
 		golang:1.4.2 make
 
 docker: docker_build
-	docker build -t $(DOCKER_ORG)/etcd-mesos .
+	docker build -t $(DOCKER_ORG)/etcd-mesos:$(VERSION) .
 
 marathon: docker
 	curl -X POST http://localhost:8080/v2/apps -d @marathon.json -H "Content-type: application/json"

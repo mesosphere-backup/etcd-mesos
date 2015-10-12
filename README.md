@@ -1,5 +1,5 @@
 # [ALPHA] etcd-mesos
-This is an Apache Mesos framework that runs an Etcd cluster.  It performs periodic health checks to ensure that the cluster has a stable leader and that raft is making progress.  It replaces nodes that die.
+This is an Apache Mesos framework that runs an etcd cluster.  It performs periodic health checks to ensure that the cluster has a stable leader and that raft is making progress.  It replaces nodes that die.
 
 Guides:
 * [Architecture](docs/architecture.md)

@@ -3,10 +3,10 @@
 Information Sources:
 
 1. Mesos Master web UI: `http://<host of mesos master>:<port usually 5050>/#/frameworks`, go to the <--framework-name> framework and you will see the running tasks.  Tasks are named by `<etcd ident> <hostname> <etcd peer port> <etcd client port> <etcd-mesos reseed listener port>` 
-2. Etcd-mesos list of running etcd servers: `http://<host of etcd-mesos-scheduler>:<admin-port, 23400 by default>/members` for a list of currently running members in a format similar to above
-3. Etcd-mesos operational stats: `http://<host of etcd-mesos-scheduler>:<admin-port, 23400 by default>/stats` for counters about running/lost nodes, livelock events, reseed attempts, whether the cluster is healthy in the scheduler's opinion (1 is healthy, 0 is unhealthy)
-4. Etcd health check: `etcdctl -C http://<one of the hosts from the member list above>:<etcd client port for it> cluster-health`
-5. Etcd membership check: `etcdctl -C http://<one of the hosts from the member list above>:<etcd client port for it> member list`
+2. etcd-mesos list of running etcd servers: `http://<host of etcd-mesos-scheduler>:<admin-port, 23400 by default>/members` for a list of currently running members in a format similar to above
+3. etcd-mesos operational stats: `http://<host of etcd-mesos-scheduler>:<admin-port, 23400 by default>/stats` for counters about running/lost nodes, livelock events, reseed attempts, whether the cluster is healthy in the scheduler's opinion (1 is healthy, 0 is unhealthy)
+4. etcd health check: `etcdctl -C http://<one of the hosts from the member list above>:<etcd client port for it> cluster-health`
+5. etcd membership check: `etcdctl -C http://<one of the hosts from the member list above>:<etcd client port for it> member list`
 
 Tools for Interaction:
 
@@ -19,8 +19,8 @@ Finding your data:
 3. The path for the task's sandbox on the slave is visible near the top of the page
 
 ## Types of possible incidents:
-#### Etcd livelock
-Livelock occurs when a majority of the Etcd cluster has been lost.  This prevents all writes and incremental membership changes to etcd.
+#### etcd livelock
+Livelock occurs when a majority of the etcd cluster has been lost.  This prevents all writes and incremental membership changes to etcd.
 
 If a majority of nodes have been lost, unless the `--auto-reseed=false` flag been passed to the scheduler, the scheduler will perform an automatic reseed attempt after `reseed-timeout` seconds.
 

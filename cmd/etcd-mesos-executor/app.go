@@ -35,7 +35,7 @@ func main() {
 				"This should be long enough for a port occupied by a killed process "+
 				"to be vacated.")
 	flag.Parse()
-	log.Infoln("Starting Etcd Executor")
+	log.Infoln("Starting etcd Executor")
 
 	dconfig := executor.DriverConfig{
 		Executor: etcdexecutor.New(

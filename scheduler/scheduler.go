@@ -838,9 +838,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	}
 
 	configSummary := node.String()
-
 	taskID := &mesos.TaskID{Value: &configSummary}
-
 	executor := s.newExecutorInfo(node, s.executorUris)
 	task := &mesos.TaskInfo{
 		Data:     serializedNodes,
@@ -855,6 +853,28 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 			util.NewRangesResource("ports", []*mesos.Value_Range{
 				util.NewValueRange(uint64(rpcPort), uint64(httpPort)),
 			}),
+		},
+		Discovery: &mesos.DiscoveryInfo{
+			Visibility: mesos.DiscoveryInfo_EXTERNAL.Enum(),
+			Name:       proto.String("etcd-server"),
+			Ports: &mesos.Ports{
+				Ports: []*mesos.Port{
+					&mesos.Port{
+						Number:   proto.Uint32(uint32(rpcPort)),
+						Protocol: proto.String("tcp"),
+					},
+					// HACK: "client" is not a real SRV protocol.  This is so
+					// that we can have etcd proxies use srv discovery on the
+					// above tcp name.  Mesos-dns does not yet care about
+					// names for DiscoveryInfo.  When it does, we should
+					// create a name for clients to use.  We want to keep
+					// the rpcPort accessible at _etcd-server._tcp.<fwname>.mesos
+					&mesos.Port{
+						Number:   proto.Uint32(uint32(clientPort)),
+						Protocol: proto.String("client"),
+					},
+				},
+			},
 		},
 	}
 

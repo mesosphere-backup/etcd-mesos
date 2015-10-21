@@ -111,28 +111,22 @@ func UpdateReconciliationInfo(
 			return err
 		}
 		defer c.Close()
-		// attempt to create the path
-		_, err = c.Create(
-			zkChroot,
-			[]byte(""),
-			0,
-			zk.WorldACL(zk.PermAll),
-		)
-		if err != nil && err != zk.ErrNodeExists {
+
+		// try to update an existing node, which may fail if it
+		// does not exist yet.
+		_, err = c.Set(zkChroot+"/"+frameworkName+"_reconciliation",
+			serializedReconciliationInfo,
+			-1)
+		if err != zk.ErrNoNode {
 			return err
 		}
+
+		// attempt to create the node, as it does not exist
 		_, err = c.Create(zkChroot+"/"+frameworkName+"_reconciliation",
 			serializedReconciliationInfo,
 			0,
 			zk.WorldACL(zk.PermAll),
 		)
-		if err != nil && err != zk.ErrNodeExists {
-			return err
-		}
-		// attempt to write framework ID to <path> / <frameworkName>
-		_, err = c.Set(zkChroot+"/"+frameworkName+"_reconciliation",
-			serializedReconciliationInfo,
-			-1)
 		if err != nil {
 			return err
 		}

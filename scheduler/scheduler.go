@@ -768,7 +768,7 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 		s.FrameworkName,
 	)
 	if err != nil {
-		log.Errorf("Could not read reconciliation info from ZK: %+v. "+
+		log.Errorf("Could not read reconciliation info from ZK: %#+v. "+
 			"Skipping task launch.", err)
 		return false
 	}

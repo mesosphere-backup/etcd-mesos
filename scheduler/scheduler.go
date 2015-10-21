@@ -80,13 +80,14 @@ type EtcdScheduler struct {
 	desiredInstanceCount   int
 	healthCheck            func(map[string]*config.Node) error
 	shutdown               func()
-	stateFunc              func(string) (*rpc.MasterState, error)
+	reconciliationInfoFunc func([]string, string, string) (map[string]string, error)
 	mut                    sync.RWMutex
 	state                  State
 	frameworkID            *mesos.FrameworkID
 	masterInfo             *mesos.MasterInfo
 	pending                map[string]struct{}
 	running                map[string]*config.Node
+	heardFrom              map[string]struct{}
 	tasks                  map[string]*mesos.TaskID
 	highestInstanceID      int64
 	executorUris           []*mesos.CommandInfo_URI
@@ -101,6 +102,7 @@ type EtcdScheduler struct {
 	reseedTimeout          time.Duration
 	livelockWindow         *time.Time
 	reseeding              int32
+	reconciliationInfo     map[string]string
 }
 
 type Stats struct {
@@ -136,6 +138,7 @@ func NewEtcdScheduler(
 		},
 		state:                Immutable,
 		running:              map[string]*config.Node{},
+		heardFrom:            map[string]struct{}{},
 		pending:              map[string]struct{}{},
 		tasks:                map[string]*mesos.TaskID{},
 		highestInstanceID:    time.Now().Unix(),
@@ -153,11 +156,12 @@ func NewEtcdScheduler(
 		),
 		healthCheck:            rpc.HealthCheck,
 		shutdown:               func() { os.Exit(1) },
-		stateFunc:              rpc.GetState,
+		reconciliationInfoFunc: rpc.GetPreviousReconciliationInfo,
 		singleInstancePerSlave: singleInstancePerSlave,
 		diskPerTask:            diskPerTask,
 		cpusPerTask:            cpusPerTask,
 		memPerTask:             memPerTask,
+		reconciliationInfo:     map[string]string{},
 	}
 }
 
@@ -187,6 +191,22 @@ func (s *EtcdScheduler) Registered(
 			}
 		} else if err == zk.ErrNodeExists {
 			log.Warning("Framework ID is already persisted for this cluster.")
+		} else {
+			err = rpc.CreateReconciliationInfo(
+				map[string]string{},
+				s.ZkServers,
+				s.ZkChroot,
+				s.FrameworkName,
+			)
+			if err != nil && err != zk.ErrNodeExists {
+				log.Errorf("Failed to persist reconciliation info: %s", err)
+				if s.shutdown != nil {
+					s.shutdown()
+				}
+			} else if err == zk.ErrNodeExists {
+				log.Warning("reconciliation info is already persisted for this cluster.")
+			}
+
 		}
 	}
 
@@ -314,6 +334,9 @@ func (s *EtcdScheduler) StatusUpdate(
 	}
 	node.SlaveID = status.SlaveId.GetValue()
 
+	// record that we've heard about this task
+	s.heardFrom[status.GetTaskId().GetValue()] = struct{}{}
+
 	switch status.GetState() {
 	case mesos.TaskState_TASK_LOST,
 		mesos.TaskState_TASK_FINISHED,
@@ -338,6 +361,11 @@ func (s *EtcdScheduler) StatusUpdate(
 		delete(s.running, node.Name)
 		delete(s.tasks, node.Name)
 
+		// We don't have to clean up the state in ZK for this
+		// as it is fine to eventually just persist when we
+		// receive a new TASK_RUNNING below.
+		delete(s.reconciliationInfo, status.TaskId.GetValue())
+
 		s.QueueLaunchAttempt()
 
 		// TODO(tyler) do we want to lock if the first task fails?
@@ -352,6 +380,21 @@ func (s *EtcdScheduler) StatusUpdate(
 		}
 	case mesos.TaskState_TASK_STARTING:
 	case mesos.TaskState_TASK_RUNNING:
+		s.reconciliationInfo[status.TaskId.GetValue()] = status.SlaveId.GetValue()
+		err = rpc.UpdateReconciliationInfo(
+			s.reconciliationInfo,
+			s.ZkServers,
+			s.ZkChroot,
+			s.FrameworkName,
+		)
+		if err != nil {
+			if s.shutdown != nil {
+				log.Errorf("Failed to persist reconciliation info: %+v", err)
+				log.Error("We can no longer guarantee correctness!  Shutting down.")
+				s.shutdown()
+			}
+		}
+
 		delete(s.pending, node.Name)
 		_, present := s.running[node.Name]
 		if !present {
@@ -459,6 +502,8 @@ func (s *EtcdScheduler) Initialize(
 	// Reset mutable state
 	s.mut.Lock()
 	s.running = map[string]*config.Node{}
+	s.heardFrom = map[string]struct{}{}
+	s.reconciliationInfo = map[string]string{}
 	s.masterInfo = masterInfo
 	s.mut.Unlock()
 
@@ -467,24 +512,47 @@ func (s *EtcdScheduler) Initialize(
 
 func (s *EtcdScheduler) attemptMasterSync(driver scheduler.SchedulerDriver) {
 	// Request that the master send us TaskStatus for live tasks.
+
 	backoff := 1
 	for retries := 0; retries < 5; retries++ {
-		_, err := driver.ReconcileTasks([]*mesos.TaskStatus{})
-		if err != nil {
-			log.Errorf("Error while calling ReconcileTasks: %s", err)
-		} else {
-			// We want to allow some time for reconciled updates to arrive.
-			err := s.waitForMasterSync()
+		previousReconciliationInfo, err := s.reconciliationInfoFunc(
+			s.ZkServers,
+			s.ZkChroot,
+			s.FrameworkName,
+		)
+		if err == nil {
+			s.mut.Lock()
+			s.reconciliationInfo = previousReconciliationInfo
+			s.mut.Unlock()
+
+			// TODO(tyler) use idiomatic Enum() instead of this
+			running := mesos.TaskState_TASK_RUNNING
+			statuses := []*mesos.TaskStatus{}
+			for taskID, slaveID := range previousReconciliationInfo {
+				statuses = append(statuses, &mesos.TaskStatus{
+					SlaveId: util.NewSlaveID(slaveID),
+					TaskId:  util.NewTaskID(taskID),
+					State:   &running,
+				})
+			}
+			_, err = driver.ReconcileTasks(statuses)
 			if err != nil {
-				log.Error(err)
+				log.Errorf("Error while calling ReconcileTasks: %s", err)
 			} else {
-				s.mut.Lock()
-				log.Info("Scheduler transitioning to Mutable state.")
-				s.state = Mutable
-				s.mut.Unlock()
-				return
+				// We want to allow some time for reconciled updates to arrive.
+				err := s.waitForMasterSync()
+				if err != nil {
+					log.Error(err)
+				} else {
+					s.mut.Lock()
+					log.Info("Scheduler transitioning to Mutable state.")
+					s.state = Mutable
+					s.mut.Unlock()
+					return
+				}
 			}
 		}
+		log.Error(err)
 		time.Sleep(time.Duration(backoff) * time.Second)
 		backoff = int(math.Min(float64(backoff<<1), 8))
 	}
@@ -496,18 +564,22 @@ func (s *EtcdScheduler) attemptMasterSync(driver scheduler.SchedulerDriver) {
 
 }
 
-func (s *EtcdScheduler) isInSync(masterState *rpc.MasterState) bool {
-	peers, err := rpc.GetPeersFromState(masterState, s.FrameworkName)
-	if err != nil {
-		log.Errorf("Could not get peers from master state: %v", err)
-		return false
-	}
+func (s *EtcdScheduler) isInSync() bool {
+	// TODO(tyler) clean up rpc.GetPeersFromState!
 	s.mut.RLock()
 	defer s.mut.RUnlock()
-	if len(peers) == len(s.running) {
-		return true
+	log.V(2).Info("Determining whether we're in-sync with the master by " +
+		"ensuring that we've heard about all previous tasks.")
+	log.V(2).Infof("running: %+v", s.running)
+	log.V(2).Infof("heardFrom: %+v", s.heardFrom)
+	log.V(2).Infof("reconciliationInfo: %+v", s.reconciliationInfo)
+	for taskID, _ := range s.reconciliationInfo {
+		_, present := s.heardFrom[taskID]
+		if !present {
+			return false
+		}
 	}
-	return false
+	return true
 }
 
 func (s *EtcdScheduler) waitForMasterSync() error {
@@ -518,24 +590,13 @@ func (s *EtcdScheduler) waitForMasterSync() error {
 		if s.masterInfo == nil || s.masterInfo.Hostname == nil {
 			return errors.New("No master info.")
 		}
-		s.mut.RLock()
-		host := *s.masterInfo.Hostname
-		port := strconv.Itoa(int(*s.masterInfo.Port))
-		s.mut.RUnlock()
 
-		if s.stateFunc == nil {
-			return errors.New("No state function.")
-		}
-		masterState, err := s.stateFunc("http://" + host + ":" + port)
-		if err != nil {
-			log.Errorf("Unable to get master state.json: %v", err)
+		// TODO(tyler) clean up StateFunc stuff elsewhere!!
+		if s.isInSync() {
+			log.Info("Scheduler synchronized with master.")
+			return nil
 		} else {
-			if s.isInSync(masterState) {
-				log.Info("Scheduler synchronized with master.")
-				return nil
-			} else {
-				log.Warning("Scheduler not yet in sync with master.")
-			}
+			log.Warning("Scheduler not yet in sync with master.")
 		}
 		time.Sleep(time.Duration(backoff) * time.Second)
 		backoff = int(math.Min(float64(backoff<<1), 8))

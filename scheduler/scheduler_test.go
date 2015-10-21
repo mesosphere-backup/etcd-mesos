@@ -58,7 +58,7 @@ func TestStartup(t *gotesting.T) {
 		"etcd-1": nil,
 		"etcd-2": nil,
 	}
-	testScheduler.stateFunc = func(url string) (*rpc.MasterState, error) {
+	testScheduler.reconciliationInfoFunc = func(url string) (*rpc.MasterState, error) {
 		return &rpc.MasterState{
 			Frameworks: []rpc.Framework{
 				{
@@ -112,7 +112,7 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
 		scheduler:       testScheduler,
 	}
-	testScheduler.stateFunc = func(url string) (*rpc.MasterState, error) {
+	testScheduler.reconciliationInfoFunc = func(url string) (*rpc.MasterState, error) {
 		return &rpc.MasterState{
 			Frameworks: []rpc.Framework{
 				{

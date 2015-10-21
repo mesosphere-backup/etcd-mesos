@@ -81,7 +81,6 @@ type EtcdScheduler struct {
 	healthCheck                  func(map[string]*config.Node) error
 	shutdown                     func()
 	reconciliationInfoFunc       func([]string, string, string) (map[string]string, error)
-	createReconciliationInfoFunc func(map[string]string, []string, string, string) error
 	updateReconciliationInfoFunc func(map[string]string, []string, string, string) error
 	mut                          sync.RWMutex
 	state                        State
@@ -159,7 +158,6 @@ func NewEtcdScheduler(
 		healthCheck:                  rpc.HealthCheck,
 		shutdown:                     func() { os.Exit(1) },
 		reconciliationInfoFunc:       rpc.GetPreviousReconciliationInfo,
-		createReconciliationInfoFunc: rpc.CreateReconciliationInfo,
 		updateReconciliationInfoFunc: rpc.UpdateReconciliationInfo,
 		singleInstancePerSlave:       singleInstancePerSlave,
 		diskPerTask:                  diskPerTask,
@@ -195,22 +193,6 @@ func (s *EtcdScheduler) Registered(
 			}
 		} else if err == zk.ErrNodeExists {
 			log.Warning("Framework ID is already persisted for this cluster.")
-		} else {
-			err = s.createReconciliationInfoFunc(
-				map[string]string{},
-				s.ZkServers,
-				s.ZkChroot,
-				s.FrameworkName,
-			)
-			if err != nil && err != zk.ErrNodeExists {
-				log.Errorf("Failed to persist reconciliation info: %s", err)
-				if s.shutdown != nil {
-					s.shutdown()
-				}
-			} else if err == zk.ErrNodeExists {
-				log.Warning("reconciliation info is already persisted for this cluster.")
-			}
-
 		}
 	}
 

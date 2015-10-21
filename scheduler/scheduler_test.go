@@ -65,10 +65,6 @@ func TestStartup(t *gotesting.T) {
 	testScheduler.reconciliationInfoFunc = func([]string, string, string) (map[string]string, error) {
 		return reconciliation, nil
 	}
-	testScheduler.createReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
-		reconciliation = info
-		return nil
-	}
 	testScheduler.updateReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
 		reconciliation = info
 		return nil
@@ -76,6 +72,10 @@ func TestStartup(t *gotesting.T) {
 
 	// On registration, ReconcileTasks should be called.
 	mockdriver.Lock()
+	mockdriver.On(
+		"ReconcileTasks",
+		0,
+	).Return(mesos.Status_DRIVER_RUNNING, nil).Once()
 	mockdriver.On(
 		"ReconcileTasks",
 		2,
@@ -120,10 +120,6 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 	testScheduler.reconciliationInfoFunc = func([]string, string, string) (map[string]string, error) {
 		return reconciliation, nil
 	}
-	testScheduler.createReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
-		reconciliation = info
-		return nil
-	}
 	testScheduler.updateReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
 		reconciliation = info
 		return nil
@@ -147,6 +143,11 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 	}
 
 	mockdriver.Lock()
+	mockdriver.On(
+		"ReconcileTasks",
+		0,
+	).Return(mesos.Status_DRIVER_RUNNING, nil).Once()
+
 	mockdriver.On(
 		"ReconcileTasks",
 		3,
@@ -181,10 +182,6 @@ func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 	}
 	testScheduler.reconciliationInfoFunc = func([]string, string, string) (map[string]string, error) {
 		return reconciliation, nil
-	}
-	testScheduler.createReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
-		reconciliation = info
-		return nil
 	}
 	testScheduler.updateReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
 		reconciliation = info
@@ -316,10 +313,6 @@ func TestScheduler(t *gotesting.T) {
 	reconciliation := map[string]string{}
 	testScheduler.reconciliationInfoFunc = func([]string, string, string) (map[string]string, error) {
 		return reconciliation, nil
-	}
-	testScheduler.createReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
-		reconciliation = info
-		return nil
 	}
 	testScheduler.updateReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
 		reconciliation = info

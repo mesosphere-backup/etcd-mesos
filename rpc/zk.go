@@ -121,6 +121,14 @@ func UpdateReconciliationInfo(
 		if err != nil && err != zk.ErrNodeExists {
 			return err
 		}
+		_, err = c.Create(zkChroot+"/"+frameworkName+"_reconciliation",
+			serializedReconciliationInfo,
+			0,
+			zk.WorldACL(zk.PermAll),
+		)
+		if err != nil && err != zk.ErrNodeExists {
+			return err
+		}
 		// attempt to write framework ID to <path> / <frameworkName>
 		_, err = c.Set(zkChroot+"/"+frameworkName+"_reconciliation",
 			serializedReconciliationInfo,
@@ -151,46 +159,6 @@ func UpdateReconciliationInfo(
 	return outerErr
 }
 
-func CreateReconciliationInfo(
-	reconciliationInfo map[string]string,
-	zkServers []string,
-	zkChroot string,
-	frameworkName string,
-) error {
-	serializedReconciliationInfo, err := json.Marshal(reconciliationInfo)
-	if err != nil {
-		return err
-	}
-
-	c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-	// attempt to create the path
-	_, err = c.Create(
-		zkChroot,
-		[]byte(""),
-		0,
-		zk.WorldACL(zk.PermAll),
-	)
-	if err != nil && err != zk.ErrNodeExists {
-		return err
-	}
-	// attempt to write framework ID to <path> / <frameworkName>
-	_, err = c.Create(zkChroot+"/"+frameworkName+"_reconciliation",
-		serializedReconciliationInfo,
-		0,
-		zk.WorldACL(zk.PermAll),
-	)
-	if err != nil {
-		return err
-	}
-	log.Info("Successfully persisted reconciliation info to zookeeper.")
-
-	return nil
-}
-
 func GetPreviousFrameworkID(
 	zkServers []string,
 	zkChroot string,
@@ -216,6 +184,9 @@ func GetPreviousReconciliationInfo(
 	}
 	defer c.Close()
 	rawData, _, err := c.Get(zkChroot + "/" + frameworkName + "_reconciliation")
+	if err == zk.ErrNoNode {
+		return map[string]string{}, nil
+	}
 	if err != nil {
 		return map[string]string{}, err
 	}

@@ -136,7 +136,9 @@ func UpdateReconciliationInfo(
 	var outerErr error = nil
 	backoff := 1
 	log.Info("persisting reconciliation info to zookeeper")
-	for retries := 0; retries < RPC_RETRIES; retries++ {
+	// Use extra retries here because we really don't want to fall out of
+	// sync here.
+	for retries := 0; retries < RPC_RETRIES*2; retries++ {
 		outerErr = request()
 		if outerErr == nil {
 			break

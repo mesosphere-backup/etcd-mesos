@@ -30,7 +30,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mesosphere/etcd-mesos/config"
-	"github.com/mesosphere/etcd-mesos/rpc"
 	emtesting "github.com/mesosphere/etcd-mesos/testing"
 )
 
@@ -58,28 +57,28 @@ func TestStartup(t *gotesting.T) {
 		"etcd-1": nil,
 		"etcd-2": nil,
 	}
-	testScheduler.reconciliationInfoFunc = func(url string) (*rpc.MasterState, error) {
-		return &rpc.MasterState{
-			Frameworks: []rpc.Framework{
-				{
-					Tasks: []rpc.Task{
-						{
-							ID: "etcd-1",
-						},
-						{
-							ID: "etcd-2",
-						},
-					},
-				},
-			},
-		}, nil
+
+	reconciliation := map[string]string{
+		"etcd-1": "slave-1",
+		"etcd-2": "slave-2",
+	}
+	testScheduler.reconciliationInfoFunc = func([]string, string, string) (map[string]string, error) {
+		return reconciliation, nil
+	}
+	testScheduler.createReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
+		reconciliation = info
+		return nil
+	}
+	testScheduler.updateReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
+		reconciliation = info
+		return nil
 	}
 
 	// On registration, ReconcileTasks should be called.
 	mockdriver.Lock()
 	mockdriver.On(
 		"ReconcileTasks",
-		[]*mesos.TaskStatus{},
+		2,
 	).Return(mesos.Status_DRIVER_RUNNING, nil).Once()
 	mockdriver.Unlock()
 
@@ -112,26 +111,23 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
 		scheduler:       testScheduler,
 	}
-	testScheduler.reconciliationInfoFunc = func(url string) (*rpc.MasterState, error) {
-		return &rpc.MasterState{
-			Frameworks: []rpc.Framework{
-				{
-					Tasks: []rpc.Task{
-						{
-							ID: "etcd-1",
-						},
-						{
-							ID: "etcd-2",
-						},
-						{
-							ID: "etcd-3",
-						},
-					},
-				},
-			},
-		}, nil
-	}
 
+	reconciliation := map[string]string{
+		"etcd-1": "slave-1",
+		"etcd-2": "slave-2",
+		"etcd-3": "slave-3",
+	}
+	testScheduler.reconciliationInfoFunc = func([]string, string, string) (map[string]string, error) {
+		return reconciliation, nil
+	}
+	testScheduler.createReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
+		reconciliation = info
+		return nil
+	}
+	testScheduler.updateReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
+		reconciliation = info
+		return nil
+	}
 	// Valid reconciled tasks should be added to the running list.
 	for _, taskStatus := range []*mesos.TaskStatus{
 		util.NewTaskStatus(
@@ -153,7 +149,7 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 	mockdriver.Lock()
 	mockdriver.On(
 		"ReconcileTasks",
-		[]*mesos.TaskStatus{},
+		3,
 	).Return(mesos.Status_DRIVER_RUNNING, nil).Once()
 	mockdriver.Unlock()
 
@@ -178,6 +174,23 @@ func TestReconciliationOnStartup(t *gotesting.T) {
 
 func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 	testScheduler := NewEtcdScheduler(3, 0, 0, true, []*mesos.CommandInfo_URI{}, false, 4096, 1, 256)
+
+	reconciliation := map[string]string{
+		"etcd-1": "slave-1",
+		"etcd-2": "slave-2",
+	}
+	testScheduler.reconciliationInfoFunc = func([]string, string, string) (map[string]string, error) {
+		return reconciliation, nil
+	}
+	testScheduler.createReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
+		reconciliation = info
+		return nil
+	}
+	testScheduler.updateReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
+		reconciliation = info
+		return nil
+	}
+
 	testScheduler.masterInfo = util.NewMasterInfo("master-1", 0, 0)
 	mockdriver := &MockSchedulerDriver{
 		runningStatuses: make(chan *mesos.TaskStatus, 10),
@@ -226,7 +239,7 @@ func TestGrowToDesiredAfterReconciliation(t *gotesting.T) {
 	// Valid reconciled tasks should be added to the running list.
 	mockdriver.On(
 		"ReconcileTasks",
-		[]*mesos.TaskStatus{},
+		0,
 	).Return(mesos.Status_DRIVER_RUNNING, nil).Once()
 
 	for _, taskStatus := range []*mesos.TaskStatus{
@@ -299,6 +312,19 @@ func TestScheduler(t *gotesting.T) {
 
 	// Skip initialization logic, tested in TestStartup.
 	testScheduler.state = Mutable
+
+	reconciliation := map[string]string{}
+	testScheduler.reconciliationInfoFunc = func([]string, string, string) (map[string]string, error) {
+		return reconciliation, nil
+	}
+	testScheduler.createReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
+		reconciliation = info
+		return nil
+	}
+	testScheduler.updateReconciliationInfoFunc = func(info map[string]string, _ []string, _ string, _ string) error {
+		reconciliation = info
+		return nil
+	}
 
 	taskStatus_task_starting := util.NewTaskStatus(
 		util.NewTaskID("etcd-1 localhost 1 1 1"),

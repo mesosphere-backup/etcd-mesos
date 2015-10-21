@@ -94,27 +94,20 @@ func main() {
 			fmt.Sprintf("Authentication provider to use, default is SASL that supports mechanisms: %+v", mech.ListSupported()))
 	singleInstancePerSlave :=
 		flag.Bool("single-instance-per-slave", true, "Only allow one etcd instance to be started per slave")
-	testMode :=
-		flag.Bool("test-mode", false, "disable forced values for -single-instance-per-slave and "+
-			"-zk-framework-persist")
 	failoverTimeoutSeconds :=
 		flag.Float64("failover-timeout-seconds", 60*60*24*7, "Mesos framework failover timeout in seconds")
 	weburi := flag.String("framework-weburi", "", "A URI that points to a web-based interface for interacting with the framework.")
 
 	flag.Parse()
 
-	if *zkFrameworkPersist == "" && !*testMode {
-		log.Fatal("No value provided for -zk-framework-persist ! This can be " +
-			"overridden by experts using the -test-mode=true argument, but several " +
-			"runtime guarantees no longer hold, and all tasks will be orphaned when " +
-			"this process exits.")
+	if *zkFrameworkPersist == "" {
+		log.Fatal("No value provided for -zk-framework-persist !")
 	}
 
-	if !*singleInstancePerSlave && !*testMode {
-		log.Fatal("-single-instance-per-slave=false is dangerous because it may lead to " +
+	if !*singleInstancePerSlave {
+		log.Warning("-single-instance-per-slave=false is dangerous because it may lead to " +
 			"multiple etcd instances in the same cluster on a single node, amplifying " +
-			"the cost of a single node being lost, livelock, and data loss.  This can " +
-			"be overridden by passing the -test-mode=true argument, at your peril.")
+			"the cost of a single node being lost, livelock, and data loss.")
 	}
 
 	if *address == "" {

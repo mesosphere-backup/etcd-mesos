@@ -68,41 +68,43 @@ const (
 )
 
 type EtcdScheduler struct {
-	Stats                  Stats
-	Master                 string
-	ExecutorPath           string
-	EtcdPath               string
-	FrameworkName          string
-	ZkConnect              string
-	ZkChroot               string
-	ZkServers              []string
-	singleInstancePerSlave bool
-	desiredInstanceCount   int
-	healthCheck            func(map[string]*config.Node) error
-	shutdown               func()
-	reconciliationInfoFunc func([]string, string, string) (map[string]string, error)
-	mut                    sync.RWMutex
-	state                  State
-	frameworkID            *mesos.FrameworkID
-	masterInfo             *mesos.MasterInfo
-	pending                map[string]struct{}
-	running                map[string]*config.Node
-	heardFrom              map[string]struct{}
-	tasks                  map[string]*mesos.TaskID
-	highestInstanceID      int64
-	executorUris           []*mesos.CommandInfo_URI
-	offerCache             *offercache.OfferCache
-	launchChan             chan struct{}
-	diskPerTask            float64
-	cpusPerTask            float64
-	memPerTask             float64
-	pauseChan              chan struct{}
-	chillSeconds           time.Duration
-	autoReseedEnabled      bool
-	reseedTimeout          time.Duration
-	livelockWindow         *time.Time
-	reseeding              int32
-	reconciliationInfo     map[string]string
+	Stats                        Stats
+	Master                       string
+	ExecutorPath                 string
+	EtcdPath                     string
+	FrameworkName                string
+	ZkConnect                    string
+	ZkChroot                     string
+	ZkServers                    []string
+	singleInstancePerSlave       bool
+	desiredInstanceCount         int
+	healthCheck                  func(map[string]*config.Node) error
+	shutdown                     func()
+	reconciliationInfoFunc       func([]string, string, string) (map[string]string, error)
+	createReconciliationInfoFunc func(map[string]string, []string, string, string) error
+	updateReconciliationInfoFunc func(map[string]string, []string, string, string) error
+	mut                          sync.RWMutex
+	state                        State
+	frameworkID                  *mesos.FrameworkID
+	masterInfo                   *mesos.MasterInfo
+	pending                      map[string]struct{}
+	running                      map[string]*config.Node
+	heardFrom                    map[string]struct{}
+	tasks                        map[string]*mesos.TaskID
+	highestInstanceID            int64
+	executorUris                 []*mesos.CommandInfo_URI
+	offerCache                   *offercache.OfferCache
+	launchChan                   chan struct{}
+	diskPerTask                  float64
+	cpusPerTask                  float64
+	memPerTask                   float64
+	pauseChan                    chan struct{}
+	chillSeconds                 time.Duration
+	autoReseedEnabled            bool
+	reseedTimeout                time.Duration
+	livelockWindow               *time.Time
+	reseeding                    int32
+	reconciliationInfo           map[string]string
 }
 
 type Stats struct {
@@ -154,14 +156,16 @@ func NewEtcdScheduler(
 			desiredInstanceCount,
 			singleInstancePerSlave,
 		),
-		healthCheck:            rpc.HealthCheck,
-		shutdown:               func() { os.Exit(1) },
-		reconciliationInfoFunc: rpc.GetPreviousReconciliationInfo,
-		singleInstancePerSlave: singleInstancePerSlave,
-		diskPerTask:            diskPerTask,
-		cpusPerTask:            cpusPerTask,
-		memPerTask:             memPerTask,
-		reconciliationInfo:     map[string]string{},
+		healthCheck:                  rpc.HealthCheck,
+		shutdown:                     func() { os.Exit(1) },
+		reconciliationInfoFunc:       rpc.GetPreviousReconciliationInfo,
+		createReconciliationInfoFunc: rpc.CreateReconciliationInfo,
+		updateReconciliationInfoFunc: rpc.UpdateReconciliationInfo,
+		singleInstancePerSlave:       singleInstancePerSlave,
+		diskPerTask:                  diskPerTask,
+		cpusPerTask:                  cpusPerTask,
+		memPerTask:                   memPerTask,
+		reconciliationInfo:           map[string]string{},
 	}
 }
 
@@ -192,7 +196,7 @@ func (s *EtcdScheduler) Registered(
 		} else if err == zk.ErrNodeExists {
 			log.Warning("Framework ID is already persisted for this cluster.")
 		} else {
-			err = rpc.CreateReconciliationInfo(
+			err = s.createReconciliationInfoFunc(
 				map[string]string{},
 				s.ZkServers,
 				s.ZkChroot,
@@ -381,18 +385,14 @@ func (s *EtcdScheduler) StatusUpdate(
 	case mesos.TaskState_TASK_STARTING:
 	case mesos.TaskState_TASK_RUNNING:
 		s.reconciliationInfo[status.TaskId.GetValue()] = status.SlaveId.GetValue()
-		err = rpc.UpdateReconciliationInfo(
+		err = s.updateReconciliationInfoFunc(
 			s.reconciliationInfo,
 			s.ZkServers,
 			s.ZkChroot,
 			s.FrameworkName,
 		)
 		if err != nil {
-			if s.shutdown != nil {
-				log.Errorf("Failed to persist reconciliation info: %+v", err)
-				log.Error("We can no longer guarantee correctness!  Shutting down.")
-				s.shutdown()
-			}
+			log.Errorf("Failed to persist reconciliation info: %+v", err)
 		}
 
 		delete(s.pending, node.Name)
@@ -525,16 +525,24 @@ func (s *EtcdScheduler) attemptMasterSync(driver scheduler.SchedulerDriver) {
 			s.reconciliationInfo = previousReconciliationInfo
 			s.mut.Unlock()
 
-			// TODO(tyler) use idiomatic Enum() instead of this
-			running := mesos.TaskState_TASK_RUNNING
 			statuses := []*mesos.TaskStatus{}
 			for taskID, slaveID := range previousReconciliationInfo {
 				statuses = append(statuses, &mesos.TaskStatus{
 					SlaveId: util.NewSlaveID(slaveID),
 					TaskId:  util.NewTaskID(taskID),
-					State:   &running,
+					State:   mesos.TaskState_TASK_RUNNING.Enum(),
 				})
 			}
+
+			// Here we do both implicit and explicit task reconciliation
+			// in the off-chance that we were unable to persist a running
+			// task in ZK after it started.
+			_, err = driver.ReconcileTasks([]*mesos.TaskStatus{})
+			if err != nil {
+				log.Errorf("Error while calling ReconcileTasks: %s", err)
+				continue
+			}
+
 			_, err = driver.ReconcileTasks(statuses)
 			if err != nil {
 				log.Errorf("Error while calling ReconcileTasks: %s", err)
@@ -767,6 +775,19 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 	if len(members) == s.desiredInstanceCount {
 		log.Errorf("Cluster is already configured for desired number of nodes.  " +
 			"Must deconfigure any dead nodes first or we may risk livelock.")
+		return false
+	}
+
+	// Ensure we can reach ZK.  This is already being done implicitly in
+	// the mesos-go driver, but it's not a bad thing to be pessimistic here.
+	_, err = s.reconciliationInfoFunc(
+		s.ZkServers,
+		s.ZkChroot,
+		s.FrameworkName,
+	)
+	if err != nil {
+		log.Errorf("Could not read reconciliation info from ZK: %+v. "+
+			"Skipping task launch.", err)
 		return false
 	}
 

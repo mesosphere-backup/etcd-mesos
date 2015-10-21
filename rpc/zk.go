@@ -157,36 +157,62 @@ func GetPreviousFrameworkID(
 	zkServers []string,
 	zkChroot string,
 	frameworkName string,
-) (string, error) {
-	c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
-	if err != nil {
-		return "", err
+) (fwid string, err error) {
+	request := func() (string, error) {
+		c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
+		if err != nil {
+			return "", err
+		}
+		defer c.Close()
+		rawData, _, err := c.Get(zkChroot + "/" + frameworkName + "_framework_id")
+		return string(rawData), err
 	}
-	defer c.Close()
-	rawData, _, err := c.Get(zkChroot + "/" + frameworkName + "_framework_id")
-	return string(rawData), err
+
+	backoff := 1
+	for retries := 0; retries < RPC_RETRIES; retries++ {
+		fwid, err = request()
+		if err == nil {
+			return fwid, err
+		}
+		time.Sleep(time.Duration(backoff) * time.Second)
+		backoff = int(math.Min(float64(backoff<<1), 8))
+	}
+	return "", err
 }
 
 func GetPreviousReconciliationInfo(
 	zkServers []string,
 	zkChroot string,
 	frameworkName string,
-) (map[string]string, error) {
-	c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
-	if err != nil {
-		return map[string]string{}, err
+) (recon map[string]string, err error) {
+	request := func() (map[string]string, error) {
+		c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
+		if err != nil {
+			return map[string]string{}, err
+		}
+		defer c.Close()
+		rawData, _, err := c.Get(zkChroot + "/" + frameworkName + "_reconciliation")
+		if err == zk.ErrNoNode {
+			return map[string]string{}, nil
+		}
+		if err != nil {
+			return map[string]string{}, err
+		}
+		reconciliationInfo := map[string]string{}
+		err = json.Unmarshal(rawData, &reconciliationInfo)
+		return reconciliationInfo, err
 	}
-	defer c.Close()
-	rawData, _, err := c.Get(zkChroot + "/" + frameworkName + "_reconciliation")
-	if err == zk.ErrNoNode {
-		return map[string]string{}, nil
+
+	backoff := 1
+	for retries := 0; retries < RPC_RETRIES; retries++ {
+		recon, err = request()
+		if err == nil {
+			return recon, err
+		}
+		time.Sleep(time.Duration(backoff) * time.Second)
+		backoff = int(math.Min(float64(backoff<<1), 8))
 	}
-	if err != nil {
-		return map[string]string{}, err
-	}
-	reconciliationInfo := map[string]string{}
-	err = json.Unmarshal(rawData, &reconciliationInfo)
-	return reconciliationInfo, err
+	return recon, err
 }
 
 func ClearZKState(

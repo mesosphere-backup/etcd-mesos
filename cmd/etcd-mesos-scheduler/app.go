@@ -243,6 +243,7 @@ func main() {
 	}
 
 	go etcdScheduler.SerialLauncher(driver)
+	go etcdScheduler.PeriodicReconciler(driver)
 	go etcdScheduler.PeriodicHealthChecker()
 	go etcdScheduler.PeriodicLaunchRequestor()
 	go etcdScheduler.AdminHTTP(*adminPort, driver)

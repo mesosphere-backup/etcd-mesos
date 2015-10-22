@@ -617,6 +617,22 @@ func (s *EtcdScheduler) PumpTheBrakes() {
 	}
 }
 
+// Perform implicit reconciliation every 5 minutes
+func (s *EtcdScheduler) PeriodicReconciler(driver scheduler.SchedulerDriver) {
+	for {
+		s.mut.RLock()
+		state := s.state
+		s.mut.RUnlock()
+		if state == Mutable {
+			_, err := driver.ReconcileTasks([]*mesos.TaskStatus{})
+			if err != nil {
+				log.Errorf("Error while calling ReconcileTasks: %s", err)
+			}
+		}
+		time.Sleep(5 * time.Minute)
+	}
+}
+
 func (s *EtcdScheduler) PeriodicHealthChecker() {
 	for {
 		time.Sleep(5 * s.chillSeconds * time.Second)

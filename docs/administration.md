@@ -10,7 +10,7 @@ First, familiarize yourself with the [architecture doc](architecture.md).
 
 ### Optional Systems
 * [Marathon](https://github.com/mesosphere/marathon)/[Kubernetes](https://github.com/GoogleCloudPlatform/kubernetes/blob/master/docs/getting-started-guides/mesos.md)/[Aurora](https://github.com/apache/aurora)/etc... for managing the etcd-mesos scheduler process.
-* [Mesos-DNS](https://github.com/mesosphere/mesos-dns) for SRV record discovery of Etcd instances running on etcd-mesos.
+* [Mesos-DNS](https://github.com/mesosphere/mesos-dns) for SRV record discovery of etcd instances running on etcd-mesos.
 * [etcd-dump](https://github.com/AaronO/etcd-dump) for performing backups and restores of non-recomputable data
 
 ## Deployment

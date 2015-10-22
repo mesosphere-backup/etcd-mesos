@@ -91,7 +91,7 @@ func (m *MockSchedulerDriver) ReconcileTasks(statuses []*mesos.TaskStatus) (meso
 		}
 	L:
 	}
-	args := m.Called(statuses)
+	args := m.Called(len(statuses))
 	return status(args, 0), args.Error(1)
 }
 func (m *MockSchedulerDriver) LaunchTasks(offerIds []*mesos.OfferID, ti []*mesos.TaskInfo, f *mesos.Filters) (mesos.Status, error) {

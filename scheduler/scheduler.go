@@ -68,39 +68,42 @@ const (
 )
 
 type EtcdScheduler struct {
-	Stats                  Stats
-	Master                 string
-	ExecutorPath           string
-	EtcdPath               string
-	FrameworkName          string
-	ZkConnect              string
-	ZkChroot               string
-	ZkServers              []string
-	singleInstancePerSlave bool
-	desiredInstanceCount   int
-	healthCheck            func(map[string]*config.Node) error
-	shutdown               func()
-	stateFunc              func(string) (*rpc.MasterState, error)
-	mut                    sync.RWMutex
-	state                  State
-	frameworkID            *mesos.FrameworkID
-	masterInfo             *mesos.MasterInfo
-	pending                map[string]struct{}
-	running                map[string]*config.Node
-	tasks                  map[string]*mesos.TaskID
-	highestInstanceID      int64
-	executorUris           []*mesos.CommandInfo_URI
-	offerCache             *offercache.OfferCache
-	launchChan             chan struct{}
-	diskPerTask            float64
-	cpusPerTask            float64
-	memPerTask             float64
-	pauseChan              chan struct{}
-	chillSeconds           time.Duration
-	autoReseedEnabled      bool
-	reseedTimeout          time.Duration
-	livelockWindow         *time.Time
-	reseeding              int32
+	Stats                        Stats
+	Master                       string
+	ExecutorPath                 string
+	EtcdPath                     string
+	FrameworkName                string
+	ZkConnect                    string
+	ZkChroot                     string
+	ZkServers                    []string
+	singleInstancePerSlave       bool
+	desiredInstanceCount         int
+	healthCheck                  func(map[string]*config.Node) error
+	shutdown                     func()
+	reconciliationInfoFunc       func([]string, string, string) (map[string]string, error)
+	updateReconciliationInfoFunc func(map[string]string, []string, string, string) error
+	mut                          sync.RWMutex
+	state                        State
+	frameworkID                  *mesos.FrameworkID
+	masterInfo                   *mesos.MasterInfo
+	pending                      map[string]struct{}
+	running                      map[string]*config.Node
+	heardFrom                    map[string]struct{}
+	tasks                        map[string]*mesos.TaskID
+	highestInstanceID            int64
+	executorUris                 []*mesos.CommandInfo_URI
+	offerCache                   *offercache.OfferCache
+	launchChan                   chan struct{}
+	diskPerTask                  float64
+	cpusPerTask                  float64
+	memPerTask                   float64
+	pauseChan                    chan struct{}
+	chillSeconds                 time.Duration
+	autoReseedEnabled            bool
+	reseedTimeout                time.Duration
+	livelockWindow               *time.Time
+	reseeding                    int32
+	reconciliationInfo           map[string]string
 }
 
 type Stats struct {
@@ -136,6 +139,7 @@ func NewEtcdScheduler(
 		},
 		state:                Immutable,
 		running:              map[string]*config.Node{},
+		heardFrom:            map[string]struct{}{},
 		pending:              map[string]struct{}{},
 		tasks:                map[string]*mesos.TaskID{},
 		highestInstanceID:    time.Now().Unix(),
@@ -151,13 +155,15 @@ func NewEtcdScheduler(
 			desiredInstanceCount,
 			singleInstancePerSlave,
 		),
-		healthCheck:            rpc.HealthCheck,
-		shutdown:               func() { os.Exit(1) },
-		stateFunc:              rpc.GetState,
-		singleInstancePerSlave: singleInstancePerSlave,
-		diskPerTask:            diskPerTask,
-		cpusPerTask:            cpusPerTask,
-		memPerTask:             memPerTask,
+		healthCheck:                  rpc.HealthCheck,
+		shutdown:                     func() { os.Exit(1) },
+		reconciliationInfoFunc:       rpc.GetPreviousReconciliationInfo,
+		updateReconciliationInfoFunc: rpc.UpdateReconciliationInfo,
+		singleInstancePerSlave:       singleInstancePerSlave,
+		diskPerTask:                  diskPerTask,
+		cpusPerTask:                  cpusPerTask,
+		memPerTask:                   memPerTask,
+		reconciliationInfo:           map[string]string{},
 	}
 }
 
@@ -314,6 +320,9 @@ func (s *EtcdScheduler) StatusUpdate(
 	}
 	node.SlaveID = status.SlaveId.GetValue()
 
+	// record that we've heard about this task
+	s.heardFrom[status.GetTaskId().GetValue()] = struct{}{}
+
 	switch status.GetState() {
 	case mesos.TaskState_TASK_LOST,
 		mesos.TaskState_TASK_FINISHED,
@@ -338,6 +347,11 @@ func (s *EtcdScheduler) StatusUpdate(
 		delete(s.running, node.Name)
 		delete(s.tasks, node.Name)
 
+		// We don't have to clean up the state in ZK for this
+		// as it is fine to eventually just persist when we
+		// receive a new TASK_RUNNING below.
+		delete(s.reconciliationInfo, status.TaskId.GetValue())
+
 		s.QueueLaunchAttempt()
 
 		// TODO(tyler) do we want to lock if the first task fails?
@@ -352,6 +366,23 @@ func (s *EtcdScheduler) StatusUpdate(
 		}
 	case mesos.TaskState_TASK_STARTING:
 	case mesos.TaskState_TASK_RUNNING:
+		// We update data to ZK synchronously because it must happen
+		// in-order.  If we spun off a goroutine this would possibly retry
+		// and succeed in the wrong order, and older data would win.
+		// We keep this simple here, as if ZK is healthy this won't take long.
+		// If this takes long, we're probably about to die anyway, as ZK is
+		// displeased and mesos-go will panic when it loses contact.
+		s.reconciliationInfo[status.TaskId.GetValue()] = status.SlaveId.GetValue()
+		err = s.updateReconciliationInfoFunc(
+			s.reconciliationInfo,
+			s.ZkServers,
+			s.ZkChroot,
+			s.FrameworkName,
+		)
+		if err != nil {
+			log.Errorf("Failed to persist reconciliation info: %+v", err)
+		}
+
 		delete(s.pending, node.Name)
 		_, present := s.running[node.Name]
 		if !present {
@@ -459,6 +490,8 @@ func (s *EtcdScheduler) Initialize(
 	// Reset mutable state
 	s.mut.Lock()
 	s.running = map[string]*config.Node{}
+	s.heardFrom = map[string]struct{}{}
+	s.reconciliationInfo = map[string]string{}
 	s.masterInfo = masterInfo
 	s.mut.Unlock()
 
@@ -467,24 +500,55 @@ func (s *EtcdScheduler) Initialize(
 
 func (s *EtcdScheduler) attemptMasterSync(driver scheduler.SchedulerDriver) {
 	// Request that the master send us TaskStatus for live tasks.
+
 	backoff := 1
 	for retries := 0; retries < 5; retries++ {
-		_, err := driver.ReconcileTasks([]*mesos.TaskStatus{})
-		if err != nil {
-			log.Errorf("Error while calling ReconcileTasks: %s", err)
-		} else {
-			// We want to allow some time for reconciled updates to arrive.
-			err := s.waitForMasterSync()
+		previousReconciliationInfo, err := s.reconciliationInfoFunc(
+			s.ZkServers,
+			s.ZkChroot,
+			s.FrameworkName,
+		)
+		if err == nil {
+			s.mut.Lock()
+			s.reconciliationInfo = previousReconciliationInfo
+			s.mut.Unlock()
+
+			statuses := []*mesos.TaskStatus{}
+			for taskID, slaveID := range previousReconciliationInfo {
+				statuses = append(statuses, &mesos.TaskStatus{
+					SlaveId: util.NewSlaveID(slaveID),
+					TaskId:  util.NewTaskID(taskID),
+					State:   mesos.TaskState_TASK_RUNNING.Enum(),
+				})
+			}
+
+			// Here we do both implicit and explicit task reconciliation
+			// in the off-chance that we were unable to persist a running
+			// task in ZK after it started.
+			_, err = driver.ReconcileTasks([]*mesos.TaskStatus{})
 			if err != nil {
-				log.Error(err)
+				log.Errorf("Error while calling ReconcileTasks: %s", err)
+				continue
+			}
+
+			_, err = driver.ReconcileTasks(statuses)
+			if err != nil {
+				log.Errorf("Error while calling ReconcileTasks: %s", err)
 			} else {
-				s.mut.Lock()
-				log.Info("Scheduler transitioning to Mutable state.")
-				s.state = Mutable
-				s.mut.Unlock()
-				return
+				// We want to allow some time for reconciled updates to arrive.
+				err := s.waitForMasterSync()
+				if err != nil {
+					log.Error(err)
+				} else {
+					s.mut.Lock()
+					log.Info("Scheduler transitioning to Mutable state.")
+					s.state = Mutable
+					s.mut.Unlock()
+					return
+				}
 			}
 		}
+		log.Error(err)
 		time.Sleep(time.Duration(backoff) * time.Second)
 		backoff = int(math.Min(float64(backoff<<1), 8))
 	}
@@ -496,18 +560,22 @@ func (s *EtcdScheduler) attemptMasterSync(driver scheduler.SchedulerDriver) {
 
 }
 
-func (s *EtcdScheduler) isInSync(masterState *rpc.MasterState) bool {
-	peers, err := rpc.GetPeersFromState(masterState, s.FrameworkName)
-	if err != nil {
-		log.Errorf("Could not get peers from master state: %v", err)
-		return false
-	}
+func (s *EtcdScheduler) isInSync() bool {
+	// TODO(tyler) clean up rpc.GetPeersFromState!
 	s.mut.RLock()
 	defer s.mut.RUnlock()
-	if len(peers) == len(s.running) {
-		return true
+	log.V(2).Info("Determining whether we're in-sync with the master by " +
+		"ensuring that we've heard about all previous tasks.")
+	log.V(2).Infof("running: %+v", s.running)
+	log.V(2).Infof("heardFrom: %+v", s.heardFrom)
+	log.V(2).Infof("reconciliationInfo: %+v", s.reconciliationInfo)
+	for taskID, _ := range s.reconciliationInfo {
+		_, present := s.heardFrom[taskID]
+		if !present {
+			return false
+		}
 	}
-	return false
+	return true
 }
 
 func (s *EtcdScheduler) waitForMasterSync() error {
@@ -518,24 +586,13 @@ func (s *EtcdScheduler) waitForMasterSync() error {
 		if s.masterInfo == nil || s.masterInfo.Hostname == nil {
 			return errors.New("No master info.")
 		}
-		s.mut.RLock()
-		host := *s.masterInfo.Hostname
-		port := strconv.Itoa(int(*s.masterInfo.Port))
-		s.mut.RUnlock()
 
-		if s.stateFunc == nil {
-			return errors.New("No state function.")
-		}
-		masterState, err := s.stateFunc("http://" + host + ":" + port)
-		if err != nil {
-			log.Errorf("Unable to get master state.json: %v", err)
+		// TODO(tyler) clean up StateFunc stuff elsewhere!!
+		if s.isInSync() {
+			log.Info("Scheduler synchronized with master.")
+			return nil
 		} else {
-			if s.isInSync(masterState) {
-				log.Info("Scheduler synchronized with master.")
-				return nil
-			} else {
-				log.Warning("Scheduler not yet in sync with master.")
-			}
+			log.Warning("Scheduler not yet in sync with master.")
 		}
 		time.Sleep(time.Duration(backoff) * time.Second)
 		backoff = int(math.Min(float64(backoff<<1), 8))
@@ -557,6 +614,22 @@ func (s *EtcdScheduler) PumpTheBrakes() {
 	case s.pauseChan <- struct{}{}:
 	default:
 		log.Warning("pauseChan is full!")
+	}
+}
+
+// Perform implicit reconciliation every 5 minutes
+func (s *EtcdScheduler) PeriodicReconciler(driver scheduler.SchedulerDriver) {
+	for {
+		s.mut.RLock()
+		state := s.state
+		s.mut.RUnlock()
+		if state == Mutable {
+			_, err := driver.ReconcileTasks([]*mesos.TaskStatus{})
+			if err != nil {
+				log.Errorf("Error while calling ReconcileTasks: %s", err)
+			}
+		}
+		time.Sleep(5 * time.Minute)
 	}
 }
 
@@ -709,6 +782,19 @@ func (s *EtcdScheduler) shouldLaunch(driver scheduler.SchedulerDriver) bool {
 		return false
 	}
 
+	// Ensure we can reach ZK.  This is already being done implicitly in
+	// the mesos-go driver, but it's not a bad thing to be pessimistic here.
+	_, err = s.reconciliationInfoFunc(
+		s.ZkServers,
+		s.ZkChroot,
+		s.FrameworkName,
+	)
+	if err != nil {
+		log.Errorf("Could not read reconciliation info from ZK: %#+v. "+
+			"Skipping task launch.", err)
+		return false
+	}
+
 	err = s.healthCheck(s.running)
 	if err != nil {
 		atomic.StoreUint32(&s.Stats.IsHealthy, 0)
@@ -838,9 +924,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 	}
 
 	configSummary := node.String()
-
 	taskID := &mesos.TaskID{Value: &configSummary}
-
 	executor := s.newExecutorInfo(node, s.executorUris)
 	task := &mesos.TaskInfo{
 		Data:     serializedNodes,
@@ -855,6 +939,28 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 			util.NewRangesResource("ports", []*mesos.Value_Range{
 				util.NewValueRange(uint64(rpcPort), uint64(httpPort)),
 			}),
+		},
+		Discovery: &mesos.DiscoveryInfo{
+			Visibility: mesos.DiscoveryInfo_EXTERNAL.Enum(),
+			Name:       proto.String("etcd-server"),
+			Ports: &mesos.Ports{
+				Ports: []*mesos.Port{
+					&mesos.Port{
+						Number:   proto.Uint32(uint32(rpcPort)),
+						Protocol: proto.String("tcp"),
+					},
+					// HACK: "client" is not a real SRV protocol.  This is so
+					// that we can have etcd proxies use srv discovery on the
+					// above tcp name.  Mesos-dns does not yet care about
+					// names for DiscoveryInfo.  When it does, we should
+					// create a name for clients to use.  We want to keep
+					// the rpcPort accessible at _etcd-server._tcp.<fwname>.mesos
+					&mesos.Port{
+						Number:   proto.Uint32(uint32(clientPort)),
+						Protocol: proto.String("client"),
+					},
+				},
+			},
 		},
 	}
 

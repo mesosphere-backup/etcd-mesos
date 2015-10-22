@@ -82,9 +82,10 @@ func HealthCheck(running map[string]*config.Node) error {
 
 	// This has a 1s dial timeout, which is ok for us
 	client := etcd.NewClient([]string{validEndpoint})
+	client.SetDialTimeout(RPC_TIMEOUT)
 	if ok := client.SyncCluster(); !ok {
-		log.Error("Could not establish connection "+
-			"with cluster using endpoints %+v", validEndpoint)
+		log.Errorf("Could not establish connection "+
+			"with cluster using endpoints %s", validEndpoint)
 		return errors.ErrEtcdConnection
 	}
 

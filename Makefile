@@ -4,7 +4,7 @@ mkfile_path	:= $(abspath $(lastword $(MAKEFILE_LIST)))
 current_dir	:= $(patsubst %/,%,$(dir $(mkfile_path)))
 GOPATH=${current_dir}/Godeps/_workspace
 DOCKER_ORG=mesosphere
-VERSION=0.1.0
+VERSION=0.1.0-alpha-target-22
 
 default: clean deps build
 

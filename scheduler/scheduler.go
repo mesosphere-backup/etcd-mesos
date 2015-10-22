@@ -927,6 +927,9 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 
 	taskID := &mesos.TaskID{Value: &configSummary}
 
+	discoveryExternalVisibility := mesos.DiscoveryInfo_EXTERNAL
+	discoveryPort := uint32(clientPort)
+
 	executor := s.newExecutorInfo(node, s.executorUris)
 	task := &mesos.TaskInfo{
 		Data:     serializedNodes,
@@ -943,12 +946,12 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 			}),
 		},
 		Discovery: &mesos.DiscoveryInfo{
-			Visibility: mesos.DiscoveryInfo_EXTERNAL.Enum(),
+			Visibility: &discoveryExternalVisibility,
 			Name:       proto.String("etcd-server"),
 			Ports: &mesos.Ports{
 				Ports: []*mesos.Port{
 					&mesos.Port{
-						Number:   proto.Uint32(uint32(clientPort)),
+						Number:   &discoveryPort,
 						Protocol: proto.String("tcp"),
 					},
 				},

@@ -19,10 +19,13 @@
 package rpc
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
+	"time"
 
 	log "github.com/golang/glog"
 	mesos "github.com/mesos/mesos-go/mesosproto"
@@ -78,7 +81,7 @@ func PersistFrameworkID(
 		return err
 	}
 	// attempt to write framework ID to <path> / <frameworkName>
-	_, err = c.Create(zkChroot+"/"+frameworkName,
+	_, err = c.Create(zkChroot+"/"+frameworkName+"_framework_id",
 		[]byte(fwid.GetValue()),
 		0,
 		zk.WorldACL(zk.PermAll))
@@ -91,18 +94,125 @@ func PersistFrameworkID(
 	return nil
 }
 
+func UpdateReconciliationInfo(
+	reconciliationInfo map[string]string,
+	zkServers []string,
+	zkChroot string,
+	frameworkName string,
+) error {
+	serializedReconciliationInfo, err := json.Marshal(reconciliationInfo)
+	if err != nil {
+		return err
+	}
+
+	request := func() error {
+		c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+
+		// try to update an existing node, which may fail if it
+		// does not exist yet.
+		_, err = c.Set(zkChroot+"/"+frameworkName+"_reconciliation",
+			serializedReconciliationInfo,
+			-1)
+		if err != zk.ErrNoNode {
+			return err
+		}
+
+		// attempt to create the node, as it does not exist
+		_, err = c.Create(zkChroot+"/"+frameworkName+"_reconciliation",
+			serializedReconciliationInfo,
+			0,
+			zk.WorldACL(zk.PermAll),
+		)
+		if err != nil {
+			return err
+		}
+		log.Info("Successfully persisted reconciliation info to zookeeper.")
+
+		return nil
+	}
+
+	var outerErr error = nil
+	backoff := 1
+	log.Info("persisting reconciliation info to zookeeper")
+	// Use extra retries here because we really don't want to fall out of
+	// sync here.
+	for retries := 0; retries < RPC_RETRIES*2; retries++ {
+		outerErr = request()
+		if outerErr == nil {
+			break
+		}
+		log.Warningf("Failed to configure cluster for new instance: %+v.  "+
+			"Backing off for %d seconds and retrying.", outerErr, backoff)
+		time.Sleep(time.Duration(backoff) * time.Second)
+		backoff = int(math.Min(float64(backoff<<1), 8))
+	}
+	return outerErr
+}
+
 func GetPreviousFrameworkID(
 	zkServers []string,
 	zkChroot string,
 	frameworkName string,
-) (string, error) {
-	c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
-	if err != nil {
-		return "", err
+) (fwid string, err error) {
+	request := func() (string, error) {
+		c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
+		if err != nil {
+			return "", err
+		}
+		defer c.Close()
+		rawData, _, err := c.Get(zkChroot + "/" + frameworkName + "_framework_id")
+		return string(rawData), err
 	}
-	defer c.Close()
-	rawData, _, err := c.Get(zkChroot + "/" + frameworkName)
-	return string(rawData), err
+
+	backoff := 1
+	for retries := 0; retries < RPC_RETRIES; retries++ {
+		fwid, err = request()
+		if err == nil {
+			return fwid, err
+		}
+		time.Sleep(time.Duration(backoff) * time.Second)
+		backoff = int(math.Min(float64(backoff<<1), 8))
+	}
+	return "", err
+}
+
+func GetPreviousReconciliationInfo(
+	zkServers []string,
+	zkChroot string,
+	frameworkName string,
+) (recon map[string]string, err error) {
+	request := func() (map[string]string, error) {
+		c, _, err := zk.Connect(zkServers, RPC_TIMEOUT)
+		if err != nil {
+			return map[string]string{}, err
+		}
+		defer c.Close()
+		rawData, _, err := c.Get(zkChroot + "/" + frameworkName + "_reconciliation")
+		if err == zk.ErrNoNode {
+			return map[string]string{}, nil
+		}
+		if err != nil {
+			return map[string]string{}, err
+		}
+		reconciliationInfo := map[string]string{}
+		err = json.Unmarshal(rawData, &reconciliationInfo)
+		return reconciliationInfo, err
+	}
+
+	backoff := 1
+	for retries := 0; retries < RPC_RETRIES; retries++ {
+		recon, err = request()
+		if err == nil {
+			return recon, err
+		}
+		time.Sleep(time.Duration(backoff) * time.Second)
+		backoff = int(math.Min(float64(backoff<<1), 8))
+	}
+	return recon, err
 }
 
 func ClearZKState(
@@ -115,7 +225,15 @@ func ClearZKState(
 		return err
 	}
 	defer c.Close()
-	return c.Delete(zkChroot+"/"+frameworkName, -1)
+	err1 := c.Delete(zkChroot+"/"+frameworkName+"_framework_id", -1)
+	err2 := c.Delete(zkChroot+"/"+frameworkName+"_reconciliation", -1)
+	if err1 != nil {
+		return err1
+	} else if err2 != nil {
+		return err2
+	} else {
+		return nil
+	}
 }
 
 func GetMasterFromZK(zkURI string) (string, error) {

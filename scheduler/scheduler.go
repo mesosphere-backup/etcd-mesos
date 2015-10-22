@@ -366,6 +366,12 @@ func (s *EtcdScheduler) StatusUpdate(
 		}
 	case mesos.TaskState_TASK_STARTING:
 	case mesos.TaskState_TASK_RUNNING:
+		// We update data to ZK synchronously because it must happen
+		// in-order.  If we spun off a goroutine this would possibly retry
+		// and succeed in the wrong order, and older data would win.
+		// We keep this simple here, as if ZK is healthy this won't take long.
+		// If this takes long, we're probably about to die anyway, as ZK is
+		// displeased and mesos-go will panic when it loses contact.
 		s.reconciliationInfo[status.TaskId.GetValue()] = status.SlaveId.GetValue()
 		err = s.updateReconciliationInfoFunc(
 			s.reconciliationInfo,

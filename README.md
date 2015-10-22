@@ -62,6 +62,14 @@ Marathon spec:
 
 ## building
 
+First, check out the tagged release for your version of Mesos.
+
+For Mesos versions 23, 24, or 25, check out `v0.1.0-alpha-target-23-24-25`
+
+For Mesos versions 22 and below (the farther below, the less the chances of compatibility), check out `v0.1.0-alpha-target-22`
+
+Next, built it!
+
 ```
 make
 ```
@@ -79,6 +87,11 @@ A typical production invocation will look something like this:
     -etcd-bin=/path/to/etcd \
     -etcdctl-bin=/path/to/etcdctl \
     -zk-framework-persist=zk://zk1:2181,zk2:2181,zk3:2181/etcd-mesos
+```
+
+If you'd like to build a new docker container, change the `DOCKER_ORG` and `VERSION` in the Makefile, and then run:
+```
+make docker
 ```
 
 ## service discovery

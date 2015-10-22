@@ -74,12 +74,12 @@ A typical production invocation will look something like this:
 ```
 /path/to/etcd-mesos-scheduler \
     -log_dir=/var/log/etcd-mesos \
-    -master="zk://zk1:2181,zk2:2181,zk3:2181/mesos" \
-    -framework-name="etcd" \
+    -master=zk://zk1:2181,zk2:2181,zk3:2181/mesos \
+    -framework-name=etcd \
     -cluster-size=5 \
     -executor-bin=/path/to/etcd-mesos-executor \
     -etcd-bin=/path/to/etcd \
-    -zk-framework-persist="zk://zk1:2181,zk2:2181,zk3:2181/etcd-mesos"
+    -zk-framework-persist=zk://zk1:2181,zk2:2181,zk3:2181/etcd-mesos
 ```
 
 ## service discovery

@@ -26,7 +26,7 @@ Marathon spec:
       "forcePullImage": true,
       "image": "mesosphere/etcd-mesos:0.1.0-alpha-target-23-24-25"
     },
-    "type": "DOCKER",
+    "type": "DOCKER"
   },
   "cpus": 0.2,
   "env": {
@@ -56,8 +56,8 @@ Marathon spec:
   "mem": 128.0,
   "ports": [
     0,
-    0,
-    0
+    1,
+    2
   ]
 }
 ```

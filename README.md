@@ -38,17 +38,15 @@ A typical production invocation will look something like this:
 ## service discovery
 Options for finding your etcd nodes on mesos:
 
-* Run the included proxy binary locally on systems that use etcd.  It retrieves the etcd configuration from mesos and starts an etcd proxy node.  Note that this it not a good idea on clusters with lots of tasks running, as the master will iterate through each task and spit out a fairly large chunk of JSON, so this approach should be avoided in favor of mesos-dns on larger clusters.
+* Run the included proxy binary locally on systems that use etcd.  It retrieves the etcd configuration from mesos and starts an etcd proxy node.  Note that this it not a good idea on clusters with lots of tasks running, as the master will iterate through each task and spit out a fairly large chunk of JSON, so this approach should be avoided in favor of mesos-dns on larger clusters. 
 ```
 etcd-mesos-proxy --master=zk://localhost:2181/mesos --framework-name=etcd-mycluster
 ```
 
-* Use mesos-dns or another system that creates SRV records and have an etcd proxy use SRV discovery:
+* Use mesos-dns, and have the etcd proxy use SRV discovery: 
 ```
 etcd --proxy=on --discovery-srv=etcd-mycluster.mesos
 ```
-
-* Use Mesos DNS or another DNS SRV system and have clients resolve `_etcd-server._client.<framework name>.mesos`
 
 * Use another system that builds configuration from mesos's state.json endpoint.  This is how #1 works, so check out the code for it in `cmd/etcd-mesos-proxy/app.go` if you want to go this route.  Be sure to minimize calls to the master for state.json on larger clusters, as this becomes an expensive operation that can easily DDOS your master if you are not careful.
 * Current membership may be queried from the `etcd-mesos-scheduler`'s `/members` http endpoint that listens on the `--admin-port` (default 23400)

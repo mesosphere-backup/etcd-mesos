@@ -16,7 +16,54 @@ Guides:
 - [x] recovers from up to n-1 failures by picking a survivor to re-seed a new cluster (ranks survivors by raft index, prefering the replica with the highest commit)
 
 ## running
-First, build the project:
+
+Marathon spec:
+```
+{
+  "id": "etcd",
+  "container": {
+    "docker": {
+      "forcePullImage": true,
+      "image": "mesosphere/etcd-mesos:0.1.0-alpha-target-23-24-25"
+    },
+    "type": "DOCKER",
+  },
+  "cpus": 0.2,
+  "env": {
+    "FRAMEWORK_NAME": "etcd",
+    "WEBURI": "http://etcd.marathon.mesos:$PORT0/stats",
+    "MESOS_MASTER": "zk://master.mesos:2181/mesos",
+    "ZK_PERSIST": "zk://master.mesos:2181/etcd",
+    "AUTO_RESEED": "true",
+    "CLUSTER_SIZE": "3",
+    "CPU_LIMIT": "1",
+    "DISK_LIMIT": "4096",
+    "MEM_LIMIT": "2048",
+    "RESEED_TIMEOUT": "240",
+    "VERBOSITY": "1"
+  },
+  "healthChecks": [
+    {
+      "gracePeriodSeconds": 60,
+      "intervalSeconds": 30,
+      "maxConsecutiveFailures": 0,
+      "path": "/healthz",
+      "portIndex": 0,
+      "protocol": "HTTP"
+    }
+  ],
+  "instances": 1,
+  "mem": 128.0,
+  "ports": [
+    0,
+    0,
+    0
+  ]
+}
+```
+
+## building
+
 ```
 make
 ```
@@ -28,7 +75,7 @@ A typical production invocation will look something like this:
 /path/to/etcd-mesos-scheduler \
     -log_dir=/var/log/etcd-mesos \
     -master="zk://zk1:2181,zk2:2181,zk3:2181/mesos" \
-    -framework-name="etcd-mycluster" \
+    -framework-name="etcd" \
     -cluster-size=5 \
     -executor-bin=/path/to/etcd-mesos-executor \
     -etcd-bin=/path/to/etcd \
@@ -40,12 +87,12 @@ Options for finding your etcd nodes on mesos:
 
 * Run the included proxy binary locally on systems that use etcd.  It retrieves the etcd configuration from mesos and starts an etcd proxy node.  Note that this it not a good idea on clusters with lots of tasks running, as the master will iterate through each task and spit out a fairly large chunk of JSON, so this approach should be avoided in favor of mesos-dns on larger clusters.
 ```
-etcd-mesos-proxy --master=zk://localhost:2181/mesos --framework-name=etcd-mycluster
+etcd-mesos-proxy --master=zk://localhost:2181/mesos --framework-name=etcd
 ```
 
 * Use mesos-dns or another system that creates SRV records and have an etcd proxy use SRV discovery:
 ```
-etcd --proxy=on --discovery-srv=etcd-mycluster.mesos
+etcd --proxy=on --discovery-srv=etcd.mesos
 ```
 
 * Use Mesos DNS or another DNS SRV system and have clients resolve `_etcd-server._client.<framework name>.mesos`

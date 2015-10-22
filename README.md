@@ -10,10 +10,8 @@ Guides:
 
 - [x] runs, monitors, and administers an etcd cluster of your desired size
 - [x] recovers from n/2-1 failures by reconfiguring the etcd cluster and launching replacement nodes
-- [x] optionally persists framework ID in zookeeper for framework failover purposes
-- [x] reconstructs framework state during failover using surviving task metadata
-- [x] etcd proxy configurer and optional SRV record support via mesos-dns
-- [x] recovers from up to n-1 failures by picking a survivor to re-seed a new cluster (ranks survivors by raft index, prefering the replica with the highest commit)
+- [x] recovers from up to n-1 simultaneous failures by picking a survivor to re-seed a new cluster (ranks survivors by raft index, prefering the replica with the highest commit)
+- [x] etcd proxy configurer (etcd-mesos-proxy) and optional SRV record support via mesos-dns
 
 ## running
 
@@ -35,11 +33,11 @@ Marathon spec:
     "MESOS_MASTER": "zk://master.mesos:2181/mesos",
     "ZK_PERSIST": "zk://master.mesos:2181/etcd",
     "AUTO_RESEED": "true",
+    "RESEED_TIMEOUT": "240",
     "CLUSTER_SIZE": "3",
     "CPU_LIMIT": "1",
     "DISK_LIMIT": "4096",
     "MEM_LIMIT": "2048",
-    "RESEED_TIMEOUT": "240",
     "VERBOSITY": "1"
   },
   "healthChecks": [

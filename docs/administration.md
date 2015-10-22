@@ -26,6 +26,7 @@ A basic production invocation will look something like this:
     -cluster-size=3 \
     -executor-bin=/path/to/etcd-mesos-executor \
     -etcd-bin=/path/to/etcd \
+    -etcdctl-bin=/path/to/etcdctl \
     -zk-framework-persist="zk://zk1:2181,zk2:2181,zk3:2181/etcd-mesos"
 ```
 

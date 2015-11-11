@@ -29,7 +29,9 @@ If this has been disabled, you may manually trigger a reseed attempt by HTTP GET
 #### Total Cluster Loss
 If all members of a cluster have been lost, and etcd was storing non-recomputable data, you must retrieve a previous replica's data from the mesos slave sandbox or restore from a previous backup.  Mesos tasks store their data in the mesos slave's work directory, but this discarded after some time, so you need to retrieve old data directories quickly.  Steps:
 The etcd-mesos scheduler locks when it detects a total cluster loss, preventing it from launching any more tasks.  If you require instant restoration of writes to a fresh cluster, restart the scheduler process.
+
 To restore data from a lost cluster:
+
 1. In the mesos UI (#1 in Information Sources above), find the etcd framework, and then the tasks that were lost.
 2. Log into a slave where they ran, and visit the directory shown at the top of the mesos UI page for the task
 3. Copy the etcd_data directory to a location outside of the mesos slave's work directory, as this directory will be destroyed automatically

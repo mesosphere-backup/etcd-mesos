@@ -46,7 +46,7 @@ func TestFindConflict(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		raftLog := newLog(NewMemoryStorage())
+		raftLog := newLog(NewMemoryStorage(), raftLogger)
 		raftLog.append(previousEnts...)
 
 		gconflict := raftLog.findConflict(tt.ents)
@@ -58,7 +58,7 @@ func TestFindConflict(t *testing.T) {
 
 func TestIsUpToDate(t *testing.T) {
 	previousEnts := []pb.Entry{{Index: 1, Term: 1}, {Index: 2, Term: 2}, {Index: 3, Term: 3}}
-	raftLog := newLog(NewMemoryStorage())
+	raftLog := newLog(NewMemoryStorage(), raftLogger)
 	raftLog.append(previousEnts...)
 	tests := []struct {
 		lastIndex uint64
@@ -126,17 +126,21 @@ func TestAppend(t *testing.T) {
 	for i, tt := range tests {
 		storage := NewMemoryStorage()
 		storage.Append(previousEnts)
-		raftLog := newLog(storage)
+		raftLog := newLog(storage, raftLogger)
 
 		index := raftLog.append(tt.ents...)
 		if index != tt.windex {
 			t.Errorf("#%d: lastIndex = %d, want %d", i, index, tt.windex)
 		}
-		if g := raftLog.entries(1, noLimit); !reflect.DeepEqual(g, tt.wents) {
+		g, err := raftLog.entries(1, noLimit)
+		if err != nil {
+			t.Fatalf("#%d: unexpected error %v", i, err)
+		}
+		if !reflect.DeepEqual(g, tt.wents) {
 			t.Errorf("#%d: logEnts = %+v, want %+v", i, g, tt.wents)
 		}
-		if g := raftLog.unstable.offset; g != tt.wunstable {
-			t.Errorf("#%d: unstable = %d, want %d", i, g, tt.wunstable)
+		if goff := raftLog.unstable.offset; goff != tt.wunstable {
+			t.Errorf("#%d: unstable = %d, want %d", i, goff, tt.wunstable)
 		}
 	}
 }
@@ -233,7 +237,7 @@ func TestLogMaybeAppend(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		raftLog := newLog(NewMemoryStorage())
+		raftLog := newLog(NewMemoryStorage(), raftLogger)
 		raftLog.append(previousEnts...)
 		raftLog.committed = commit
 		func() {
@@ -257,7 +261,10 @@ func TestLogMaybeAppend(t *testing.T) {
 				t.Errorf("#%d: committed = %d, want %d", i, gcommit, tt.wcommit)
 			}
 			if gappend && len(tt.ents) != 0 {
-				gents := raftLog.slice(raftLog.lastIndex()-uint64(len(tt.ents))+1, raftLog.lastIndex()+1, noLimit)
+				gents, err := raftLog.slice(raftLog.lastIndex()-uint64(len(tt.ents))+1, raftLog.lastIndex()+1, noLimit)
+				if err != nil {
+					t.Fatalf("unexpected error %v", err)
+				}
 				if !reflect.DeepEqual(tt.ents, gents) {
 					t.Errorf("%d: appended entries = %v, want %v", i, gents, tt.ents)
 				}
@@ -278,7 +285,7 @@ func TestCompactionSideEffects(t *testing.T) {
 	for i = 1; i <= unstableIndex; i++ {
 		storage.Append([]pb.Entry{{Term: uint64(i), Index: uint64(i)}})
 	}
-	raftLog := newLog(storage)
+	raftLog := newLog(storage, raftLogger)
 	for i = unstableIndex; i < lastIndex; i++ {
 		raftLog.append(pb.Entry{Term: uint64(i + 1), Index: uint64(i + 1)})
 	}
@@ -297,8 +304,8 @@ func TestCompactionSideEffects(t *testing.T) {
 	}
 
 	for j := offset; j <= raftLog.lastIndex(); j++ {
-		if raftLog.term(j) != j {
-			t.Errorf("term(%d) = %d, want %d", j, raftLog.term(j), j)
+		if mustTerm(raftLog.term(j)) != j {
+			t.Errorf("term(%d) = %d, want %d", j, mustTerm(raftLog.term(j)), j)
 		}
 	}
 
@@ -322,7 +329,10 @@ func TestCompactionSideEffects(t *testing.T) {
 		t.Errorf("lastIndex = %d, want = %d", raftLog.lastIndex(), prev+1)
 	}
 
-	ents := raftLog.entries(raftLog.lastIndex(), noLimit)
+	ents, err := raftLog.entries(raftLog.lastIndex(), noLimit)
+	if err != nil {
+		t.Fatalf("unexpected error %v", err)
+	}
 	if len(ents) != 1 {
 		t.Errorf("len(entries) = %d, want = %d", len(ents), 1)
 	}
@@ -349,7 +359,7 @@ func TestNextEnts(t *testing.T) {
 	for i, tt := range tests {
 		storage := NewMemoryStorage()
 		storage.ApplySnapshot(snap)
-		raftLog := newLog(storage)
+		raftLog := newLog(storage, raftLogger)
 		raftLog.append(ents...)
 		raftLog.maybeCommit(5, 1)
 		raftLog.appliedTo(tt.applied)
@@ -379,7 +389,7 @@ func TestUnstableEnts(t *testing.T) {
 		storage.Append(previousEnts[:tt.unstable-1])
 
 		// append unstable entries to raftlog
-		raftLog := newLog(storage)
+		raftLog := newLog(storage, raftLogger)
 		raftLog.append(previousEnts[tt.unstable-1:]...)
 
 		ents := raftLog.unstableEntries()
@@ -417,7 +427,7 @@ func TestCommitTo(t *testing.T) {
 					}
 				}
 			}()
-			raftLog := newLog(NewMemoryStorage())
+			raftLog := newLog(NewMemoryStorage(), raftLogger)
 			raftLog.append(previousEnts...)
 			raftLog.committed = commit
 			raftLog.commitTo(tt.commit)
@@ -440,7 +450,7 @@ func TestStableTo(t *testing.T) {
 		{3, 1, 1}, // bad index
 	}
 	for i, tt := range tests {
-		raftLog := newLog(NewMemoryStorage())
+		raftLog := newLog(NewMemoryStorage(), raftLogger)
 		raftLog.append([]pb.Entry{{Index: 1, Term: 1}, {Index: 2, Term: 2}}...)
 		raftLog.stableTo(tt.stablei, tt.stablet)
 		if raftLog.unstable.offset != tt.wunstable {
@@ -477,7 +487,7 @@ func TestStableToWithSnap(t *testing.T) {
 	for i, tt := range tests {
 		s := NewMemoryStorage()
 		s.ApplySnapshot(pb.Snapshot{Metadata: pb.SnapshotMetadata{Index: snapi, Term: snapt}})
-		raftLog := newLog(s)
+		raftLog := newLog(s, raftLogger)
 		raftLog.append(tt.newEnts...)
 		raftLog.stableTo(tt.stablei, tt.stablet)
 		if raftLog.unstable.offset != tt.wunstable {
@@ -515,7 +525,7 @@ func TestCompaction(t *testing.T) {
 			for i := uint64(1); i <= tt.lastIndex; i++ {
 				storage.Append([]pb.Entry{{Index: i}})
 			}
-			raftLog := newLog(storage)
+			raftLog := newLog(storage, raftLogger)
 			raftLog.maybeCommit(tt.lastIndex, 0)
 			raftLog.appliedTo(raftLog.committed)
 
@@ -541,7 +551,7 @@ func TestLogRestore(t *testing.T) {
 	snap := pb.SnapshotMetadata{Index: index, Term: term}
 	storage := NewMemoryStorage()
 	storage.ApplySnapshot(pb.Snapshot{Metadata: snap})
-	raftLog := newLog(storage)
+	raftLog := newLog(storage, raftLogger)
 
 	if len(raftLog.allEntries()) != 0 {
 		t.Errorf("len = %d, want 0", len(raftLog.allEntries()))
@@ -553,10 +563,10 @@ func TestLogRestore(t *testing.T) {
 		t.Errorf("committed = %d, want %d", raftLog.committed, index)
 	}
 	if raftLog.unstable.offset != index+1 {
-		t.Errorf("unstable = %d, want %d", raftLog.unstable, index+1)
+		t.Errorf("unstable = %d, want %d", raftLog.unstable.offset, index+1)
 	}
-	if raftLog.term(index) != term {
-		t.Errorf("term = %d, want %d", raftLog.term(index), term)
+	if mustTerm(raftLog.term(index)) != term {
+		t.Errorf("term = %d, want %d", mustTerm(raftLog.term(index)), term)
 	}
 }
 
@@ -565,47 +575,56 @@ func TestIsOutOfBounds(t *testing.T) {
 	num := uint64(100)
 	storage := NewMemoryStorage()
 	storage.ApplySnapshot(pb.Snapshot{Metadata: pb.SnapshotMetadata{Index: offset}})
-	l := newLog(storage)
+	l := newLog(storage, raftLogger)
 	for i := uint64(1); i <= num; i++ {
 		l.append(pb.Entry{Index: i + offset})
 	}
 
 	first := offset + 1
 	tests := []struct {
-		lo, hi uint64
-		wpainc bool
+		lo, hi        uint64
+		wpanic        bool
+		wErrCompacted bool
 	}{
 		{
 			first - 2, first + 1,
+			false,
 			true,
 		},
 		{
 			first - 1, first + 1,
+			false,
 			true,
 		},
 		{
 			first, first,
 			false,
+			false,
 		},
 		{
 			first + num/2, first + num/2,
+			false,
 			false,
 		},
 		{
 			first + num - 1, first + num - 1,
 			false,
+			false,
 		},
 		{
 			first + num, first + num,
+			false,
 			false,
 		},
 		{
 			first + num, first + num + 1,
 			true,
+			false,
 		},
 		{
 			first + num + 1, first + num + 1,
 			true,
+			false,
 		},
 	}
 
@@ -613,14 +632,20 @@ func TestIsOutOfBounds(t *testing.T) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					if !tt.wpainc {
+					if !tt.wpanic {
 						t.Errorf("%d: panic = %v, want %v: %v", i, true, false, r)
 					}
 				}
 			}()
-			l.mustCheckOutOfBounds(tt.lo, tt.hi)
-			if tt.wpainc {
+			err := l.mustCheckOutOfBounds(tt.lo, tt.hi)
+			if tt.wpanic {
 				t.Errorf("%d: panic = %v, want %v", i, false, true)
+			}
+			if tt.wErrCompacted && err != ErrCompacted {
+				t.Errorf("%d: err = %v, want %v", i, err, ErrCompacted)
+			}
+			if !tt.wErrCompacted && err != nil {
+				t.Errorf("%d: unexpected err %v", i, err)
 			}
 		}()
 	}
@@ -633,7 +658,7 @@ func TestTerm(t *testing.T) {
 
 	storage := NewMemoryStorage()
 	storage.ApplySnapshot(pb.Snapshot{Metadata: pb.SnapshotMetadata{Index: offset, Term: 1}})
-	l := newLog(storage)
+	l := newLog(storage, raftLogger)
 	for i = 1; i < num; i++ {
 		l.append(pb.Entry{Index: offset + i, Term: i})
 	}
@@ -650,7 +675,7 @@ func TestTerm(t *testing.T) {
 	}
 
 	for j, tt := range tests {
-		term := l.term(tt.index)
+		term := mustTerm(l.term(tt.index))
 		if !reflect.DeepEqual(term, tt.w) {
 			t.Errorf("#%d: at = %d, want %d", j, term, tt.w)
 		}
@@ -663,7 +688,7 @@ func TestTermWithUnstableSnapshot(t *testing.T) {
 
 	storage := NewMemoryStorage()
 	storage.ApplySnapshot(pb.Snapshot{Metadata: pb.SnapshotMetadata{Index: storagesnapi, Term: 1}})
-	l := newLog(storage)
+	l := newLog(storage, raftLogger)
 	l.restore(pb.Snapshot{Metadata: pb.SnapshotMetadata{Index: unstablesnapi, Term: 1}})
 
 	tests := []struct {
@@ -680,7 +705,7 @@ func TestTermWithUnstableSnapshot(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		term := l.term(tt.index)
+		term := mustTerm(l.term(tt.index))
 		if !reflect.DeepEqual(term, tt.w) {
 			t.Errorf("#%d: at = %d, want %d", i, term, tt.w)
 		}
@@ -700,7 +725,7 @@ func TestSlice(t *testing.T) {
 	for i = 1; i < num/2; i++ {
 		storage.Append([]pb.Entry{{Index: offset + i, Term: offset + i}})
 	}
-	l := newLog(storage)
+	l := newLog(storage, raftLogger)
 	for i = num / 2; i < num; i++ {
 		l.append(pb.Entry{Index: offset + i, Term: offset + i})
 	}
@@ -714,8 +739,8 @@ func TestSlice(t *testing.T) {
 		wpanic bool
 	}{
 		// test no limit
-		{offset - 1, offset + 1, noLimit, nil, true},
-		{offset, offset + 1, noLimit, nil, true},
+		{offset - 1, offset + 1, noLimit, nil, false},
+		{offset, offset + 1, noLimit, nil, false},
 		{half - 1, half + 1, noLimit, []pb.Entry{{Index: half - 1, Term: half - 1}, {Index: half, Term: half}}, false},
 		{half, half + 1, noLimit, []pb.Entry{{Index: half, Term: half}}, false},
 		{last - 1, last, noLimit, []pb.Entry{{Index: last - 1, Term: last - 1}}, false},
@@ -739,10 +764,23 @@ func TestSlice(t *testing.T) {
 					}
 				}
 			}()
-			g := l.slice(tt.from, tt.to, tt.limit)
+			g, err := l.slice(tt.from, tt.to, tt.limit)
+			if tt.from <= offset && err != ErrCompacted {
+				t.Fatalf("#%d: err = %v, want %v", j, err, ErrCompacted)
+			}
+			if tt.from > offset && err != nil {
+				t.Fatalf("#%d: unexpected error %v", j, err)
+			}
 			if !reflect.DeepEqual(g, tt.w) {
 				t.Errorf("#%d: from %d to %d = %v, want %v", j, tt.from, tt.to, g, tt.w)
 			}
 		}()
 	}
+}
+
+func mustTerm(term uint64, err error) uint64 {
+	if err != nil {
+		panic(err)
+	}
+	return term
 }

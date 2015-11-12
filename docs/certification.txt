@@ -8,7 +8,7 @@ certification
 - [x] Scheduler MUST only use the necessary fraction of an offer.
 - [x] Executor MUST NOT rely on being run on a particular node.
 - [x] Service MUST NOT require anything to be pre-installed on a node.
-- [ ] Service MUST use standard DCOS packaging.
+- [x] Service MUST use standard DCOS packaging.
 - [x] Configuration MUST be via CLI parameters or environment variables.
 - [x] Scheduler MUST provide a health check.
 - [x] Scheduler MUST support a custom FrameworkInfo.name.

@@ -1,4 +1,4 @@
-This list is to provide a record of problems for tests to add coverage for if possible.
+This list is to provide a record of problems for posterity and test coverage.
 
 does not always clear running instances, leading to it rejecting offers when it needs to heal
   fixed
@@ -46,15 +46,14 @@ tasks possibly deconfigured incorrectly?  or they think they are during reseed?
   fixed - need to run etcdctl backup on data dir first to strip out old membership
 
 when starting on executor, it can crash if it starts with a previously-used name without the wal being present
-  possibly related to above issue? waiting for resurfacing
+  possibly fixed / related to above issue? waiting for resurfacing
 
 executors stay alive forever when master, slave, or etcd instance fails
 
 executors in staging state for a long time (don't send any updates) will just stay alive as zombies forever, consuming offers
 
 Prune sees a starting node in the member list with the name "" (empty string), doesn't recognize it, and tries to kill it
-  nodes were not successfully joining a reseedeg cluster due to failure to strip previous cluster metadata during reseed
+  fixed: nodes were not successfully joining a reseeded cluster due to failure to strip previous cluster metadata during reseed
 
 node mismatch: running node is not properly accounted for during reconciliation in certain situations (master failover) in running instance list
-  leads to failure to launch new nodes, as they all have improper config
-  eventually fixes itself, but spins on failure for a bit
+  fixed: reconciliation info now stored externally in zk

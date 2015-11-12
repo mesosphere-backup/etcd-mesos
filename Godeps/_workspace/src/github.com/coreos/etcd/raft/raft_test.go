@@ -480,7 +480,7 @@ func TestDuelingCandidates(t *testing.T) {
 	nt.send(pb.Message{From: 3, To: 3, Type: pb.MsgHup})
 
 	wlog := &raftLog{
-		storage:   &MemoryStorage{ents: []pb.Entry{{}, pb.Entry{Data: nil, Term: 1, Index: 1}}},
+		storage:   &MemoryStorage{ents: []pb.Entry{{}, {Data: nil, Term: 1, Index: 1}}},
 		committed: 1,
 		unstable:  unstable{offset: 2},
 	}
@@ -492,7 +492,7 @@ func TestDuelingCandidates(t *testing.T) {
 	}{
 		{a, StateFollower, 2, wlog},
 		{b, StateFollower, 2, wlog},
-		{c, StateFollower, 2, newLog(NewMemoryStorage())},
+		{c, StateFollower, 2, newLog(NewMemoryStorage(), raftLogger)},
 	}
 
 	for i, tt := range tests {
@@ -638,7 +638,7 @@ func TestProposal(t *testing.T) {
 		send(pb.Message{From: 1, To: 1, Type: pb.MsgHup})
 		send(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: data}}})
 
-		wantLog := newLog(NewMemoryStorage())
+		wantLog := newLog(NewMemoryStorage(), raftLogger)
 		if tt.success {
 			wantLog = &raftLog{
 				storage: &MemoryStorage{
@@ -1480,8 +1480,8 @@ func TestRestore(t *testing.T) {
 	if sm.raftLog.lastIndex() != s.Metadata.Index {
 		t.Errorf("log.lastIndex = %d, want %d", sm.raftLog.lastIndex(), s.Metadata.Index)
 	}
-	if sm.raftLog.term(s.Metadata.Index) != s.Metadata.Term {
-		t.Errorf("log.lastTerm = %d, want %d", sm.raftLog.term(s.Metadata.Index), s.Metadata.Term)
+	if mustTerm(sm.raftLog.term(s.Metadata.Index)) != s.Metadata.Term {
+		t.Errorf("log.lastTerm = %d, want %d", mustTerm(sm.raftLog.term(s.Metadata.Index)), s.Metadata.Term)
 	}
 	sg := sm.nodes()
 	if !reflect.DeepEqual(sg, s.Metadata.ConfState.Nodes) {
@@ -1630,7 +1630,11 @@ func TestStepIgnoreConfig(t *testing.T) {
 	pendingConf := r.pendingConf
 	r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Type: pb.EntryConfChange}}})
 	wents := []pb.Entry{{Type: pb.EntryNormal, Term: 1, Index: 3, Data: nil}}
-	if ents := r.raftLog.entries(index+1, noLimit); !reflect.DeepEqual(ents, wents) {
+	ents, err := r.raftLog.entries(index+1, noLimit)
+	if err != nil {
+		t.Fatalf("unexpected error %v", err)
+	}
+	if !reflect.DeepEqual(ents, wents) {
 		t.Errorf("ents = %+v, want %+v", ents, wents)
 	}
 	if r.pendingConf != pendingConf {

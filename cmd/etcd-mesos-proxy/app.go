@@ -81,7 +81,7 @@ func main() {
 	}
 
 	// Pull the current tasks from the mesos master
-	log.Printf("Pulling state.json from master: %s\n", *master)
+	log.Printf("Pulling state from master: %s\n", *master)
 	state, err := rpc.GetState("http://" + *master)
 	if err != nil {
 		log.Fatal(err)

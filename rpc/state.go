@@ -58,41 +58,56 @@ type Framework struct {
 
 // This is only a partial section of the returned JSON.
 // In the future we may need to add more fields if they
-// have a reason to be queried.  Hitting state.json is
-// an antipattern, but we only do it during framework
+// have a reason to be queried.  Hitting /state is an
+// antipattern, but we only do it during framework
 // initialization.
 type MasterState struct {
 	Frameworks []Framework `json:"frameworks"`
 }
 
 func GetState(master string) (*MasterState, error) {
-	backoff := 1
-	log.Infof("Trying to get master state from %s/state.json", master)
-	var outerErr error
-	masterState := &MasterState{}
+	log.Infof("Trying to get master state from %s/state", master)
+	var (
+		backoff = 1
+		client  = http.Client{
+			Timeout: RPC_TIMEOUT,
+		}
+		masterState = &MasterState{}
+		outerErr    error
+
+		get = func(uri string) ([]byte, int, error) {
+			resp, err := client.Get(uri)
+			if err != nil {
+				return nil, 0, err
+			}
+			defer resp.Body.Close()
+			blob, err := ioutil.ReadAll(resp.Body)
+			return blob, resp.StatusCode, err
+		}
+	)
 	for retries := 0; retries < RPC_RETRIES; retries++ {
 		for {
-			client := http.Client{
-				Timeout: RPC_TIMEOUT,
-			}
-			resp, err := client.Get(fmt.Sprintf("%s/state.json", master))
+			blob, code, err := get(fmt.Sprintf("%s/state", master))
 			if err != nil {
 				outerErr = err
 				break
 			}
-			blob, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				outerErr = err
-				break
+			if code == 404 {
+				// fallback to .json extension
+				log.V(1).Infof("falling back to /state.json endpoint")
+				blob, code, err = get(fmt.Sprintf("%s/state.json", master))
+				if err != nil {
+					outerErr = err
+					break
+				}
 			}
-
 			err = json.Unmarshal(blob, masterState)
 			if err == nil {
 				return masterState, nil
 			}
 			log.Error(err)
 		}
-		log.Warningf("Failed to get state.json: %v", outerErr)
+		log.Warningf("Failed to get state: %v", outerErr)
 		time.Sleep(time.Duration(backoff) * time.Second)
 		backoff = int(math.Min(float64(backoff<<1), 8))
 	}
@@ -109,7 +124,7 @@ func GetPeersFromState(state *MasterState, frameworkName string) ([]string, erro
 	}
 	if framework == nil {
 		return []string{}, fmt.Errorf("Could not find framework %q in "+
-			"the mesos master's state.json", frameworkName)
+			"the mesos master's state", frameworkName)
 	}
 
 	peers := []string{}

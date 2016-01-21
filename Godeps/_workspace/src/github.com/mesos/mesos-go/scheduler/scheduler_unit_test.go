@@ -21,7 +21,6 @@ package scheduler
 import (
 	"fmt"
 	"os/user"
-	"sync"
 	"testing"
 	"time"
 
@@ -34,46 +33,9 @@ import (
 	"github.com/mesos/mesos-go/messenger"
 	"github.com/mesos/mesos-go/upid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/net/context"
 )
-
-var (
-	registerMockDetectorOnce sync.Once
-)
-
-func ensureMockDetectorRegistered() {
-	registerMockDetectorOnce.Do(func() {
-		var s *SchedulerTestSuite
-		err := s.registerMockDetector("testing://")
-		if err != nil {
-			log.Error(err)
-		}
-	})
-}
-
-type MockDetector struct {
-	mock.Mock
-	address string
-}
-
-func (m *MockDetector) Detect(listener detector.MasterChanged) error {
-	if listener != nil {
-		if pid, err := upid.Parse("master(2)@" + m.address); err != nil {
-			return err
-		} else {
-			go listener.OnMasterChanged(detector.CreateMasterInfo(pid))
-		}
-	}
-	return nil
-}
-
-func (m *MockDetector) Done() <-chan struct{} {
-	return nil
-}
-
-func (m *MockDetector) Cancel() {}
 
 type SchedulerTestSuiteCore struct {
 	master      string
@@ -86,18 +48,6 @@ type SchedulerTestSuiteCore struct {
 type SchedulerTestSuite struct {
 	suite.Suite
 	SchedulerTestSuiteCore
-}
-
-func (s *SchedulerTestSuite) registerMockDetector(prefix string) error {
-	address := ""
-	if s != nil {
-		address = s.master
-	} else {
-		address = "127.0.0.1:8080"
-	}
-	return detector.Register(prefix, detector.PluginFactory(func(spec string) (detector.Master, error) {
-		return &MockDetector{address: address}, nil
-	}))
 }
 
 func (s *SchedulerTestSuiteCore) SetupTest() {
@@ -123,10 +73,11 @@ func driverConfig(sched Scheduler, framework *mesos.FrameworkInfo, master string
 
 func driverConfigMessenger(sched Scheduler, framework *mesos.FrameworkInfo, master string, cred *mesos.Credential, m messenger.Messenger) DriverConfig {
 	d := DriverConfig{
-		Scheduler:  sched,
-		Framework:  framework,
-		Master:     master,
-		Credential: cred,
+		Scheduler:   sched,
+		Framework:   framework,
+		Master:      master,
+		Credential:  cred,
+		NewDetector: func() (detector.Master, error) { return nil, nil }, // master detection not needed
 	}
 	if m != nil {
 		d.NewMessenger = func() (messenger.Messenger, error) { return m, nil }
@@ -137,7 +88,7 @@ func driverConfigMessenger(sched Scheduler, framework *mesos.FrameworkInfo, mast
 func mockedMessenger() *messenger.MockedMessenger {
 	m := messenger.NewMockedMessenger()
 	m.On("Start").Return(nil)
-	m.On("UPID").Return(&upid.UPID{})
+	m.On("UPID").Return(upid.UPID{})
 	m.On("Send").Return(nil)
 	m.On("Stop").Return(nil)
 	m.On("Route").Return(nil)
@@ -228,7 +179,7 @@ func (suite *SchedulerTestSuite) TestSchedulerDriverStartWithRegistrationFailure
 	// Set expections and return values.
 	messenger := messenger.NewMockedMessenger()
 	messenger.On("Start").Return(nil)
-	messenger.On("UPID").Return(&upid.UPID{})
+	messenger.On("UPID").Return(upid.UPID{})
 	messenger.On("Stop").Return(nil)
 	messenger.On("Install").Return(nil)
 
@@ -354,30 +305,30 @@ func (suite *SchedulerTestSuite) TestSchdulerDriverStop_WithoutFailover() {
 
 func (suite *SchedulerTestSuite) TestSchdulerDriverStop_WithFailover() {
 	// Set expections and return values.
-	messenger := &msgTracker{MockedMessenger: mockedMessenger()}
-	driver := newTestSchedulerDriver(suite.T(), driverConfigMessenger(NewMockScheduler(), suite.framework, suite.master, nil, messenger))
+	mess := &msgTracker{MockedMessenger: mockedMessenger()}
+	d := DriverConfig{
+		Scheduler:    NewMockScheduler(),
+		Framework:    suite.framework,
+		Master:       suite.master,
+		NewMessenger: func() (messenger.Messenger, error) { return mess, nil },
+		NewDetector:  func() (detector.Master, error) { return nil, nil },
+	}
+	driver := newTestSchedulerDriver(suite.T(), d)
 	suite.False(driver.Running())
-
-	stat, err := driver.Start()
-	suite.NoError(err)
-	suite.Equal(mesos.Status_DRIVER_RUNNING, stat)
-	suite.True(driver.Running())
-	driver.connected = true // pretend that we're already registered
 
 	ch := make(chan struct{})
 	go func() {
 		defer close(ch)
-		// Run() blocks until the driver is stopped or aborted
-		stat, err := driver.Join()
+		stat, err := driver.Run()
 		suite.NoError(err)
 		suite.Equal(mesos.Status_DRIVER_STOPPED, stat)
 	}()
+	<-driver.started
+	driver.setConnected(true) // simulated
 
-	// wait for Join() to begin blocking (so that it has already validated the driver state)
-	time.Sleep(200 * time.Millisecond)
-
+	suite.True(driver.Running())
 	driver.Stop(true) // true = scheduler failover
-	msg := messenger.lastMessage
+	msg := mess.lastMessage
 
 	// we're expecting that lastMessage is nil because when failing over there's no
 	// 'unregister' message sent by the scheduler.
@@ -388,7 +339,7 @@ func (suite *SchedulerTestSuite) TestSchdulerDriverStop_WithFailover() {
 	<-ch
 }
 
-func (suite *SchedulerTestSuite) TestSchdulerDriverAbort() {
+func (suite *SchedulerTestSuite) TestSchedulerDriverAbort() {
 	driver := newTestSchedulerDriver(suite.T(), driverConfigMessenger(NewMockScheduler(), suite.framework, suite.master, nil, mockedMessenger()))
 	suite.False(driver.Running())
 
@@ -412,10 +363,144 @@ func (suite *SchedulerTestSuite) TestSchdulerDriverAbort() {
 	suite.False(driver.Running())
 	suite.Equal(mesos.Status_DRIVER_ABORTED, stat)
 	suite.Equal(mesos.Status_DRIVER_ABORTED, driver.Status())
+	log.Info("waiting for driver to stop")
 	<-ch
 }
 
-func (suite *SchedulerTestSuite) TestSchdulerDriverLunchTasksUnstarted() {
+type fakeErrorScheduler struct {
+	Scheduler
+	msg    string
+	called chan struct{}
+}
+
+func (f *fakeErrorScheduler) Error(d SchedulerDriver, msg string) {
+	select {
+	case <-f.called:
+		return
+	default:
+	}
+	defer close(f.called)
+	f.msg = msg
+}
+
+func (suite *SchedulerTestSuite) TestSchedulerDriverErrorBeforeConnected() {
+	sched := NewMockScheduler()
+	errorTracker := &fakeErrorScheduler{Scheduler: sched, called: make(chan struct{})}
+	driver := newTestSchedulerDriver(suite.T(), driverConfigMessenger(errorTracker, suite.framework, suite.master, nil, mockedMessenger()))
+
+	const msg = "some random error message"
+	suite.False(driver.Running())
+
+	func() {
+		driver.eventLock.Lock()
+		defer driver.eventLock.Unlock()
+		driver.error(msg) // this is the callback that's eventually invoked when receiving an error from the master
+	}()
+
+	<-errorTracker.called
+	suite.Equal(msg, errorTracker.msg)
+
+	<-driver.stopCh
+	suite.False(driver.Running())
+	suite.Equal(mesos.Status_DRIVER_ABORTED, driver.Status())
+}
+
+func (suite *SchedulerTestSuite) TestSchdulerDriverAcceptOffersUnstarted() {
+	sched := NewMockScheduler()
+	sched.On("Error").Return()
+
+	// Set expections and return values.
+	messenger := messenger.NewMockedMessenger()
+	messenger.On("Route").Return(nil)
+	messenger.On("Install").Return(nil)
+
+	driver := newTestSchedulerDriver(suite.T(), driverConfigMessenger(sched, suite.framework, suite.master, nil, messenger))
+
+	stat, err := driver.AcceptOffers(
+		[]*mesos.OfferID{{}},
+		[]*mesos.Offer_Operation{},
+		&mesos.Filters{},
+	)
+	suite.Error(err)
+	suite.Equal(mesos.Status_DRIVER_NOT_STARTED, stat)
+}
+
+func (suite *SchedulerTestSuite) TestSchdulerDriverAcceptOffersWithError() {
+	sched := NewMockScheduler()
+	sched.On("StatusUpdate").Return(nil)
+	sched.On("Error").Return()
+
+	msgr := mockedMessenger()
+	driver := newTestSchedulerDriver(suite.T(), driverConfigMessenger(sched, suite.framework, suite.master, nil, msgr))
+	driver.dispatch = func(_ context.Context, _ *upid.UPID, _ proto.Message) error {
+		return fmt.Errorf("Unable to send message")
+	}
+
+	go func() {
+		driver.Run()
+	}()
+	<-driver.started
+	driver.setConnected(true) // simulated
+	suite.True(driver.Running())
+
+	// setup an offer
+	offer := util.NewOffer(
+		util.NewOfferID("test-offer-001"),
+		suite.framework.Id,
+		util.NewSlaveID("test-slave-001"),
+		"test-slave(1)@localhost:5050",
+	)
+
+	pid, err := upid.Parse("test-slave(1)@localhost:5050")
+	suite.NoError(err)
+	driver.cache.putOffer(offer, pid)
+
+	// launch task
+	task := util.NewTaskInfo(
+		"simple-task",
+		util.NewTaskID("simpe-task-1"),
+		util.NewSlaveID("test-slave-001"),
+		[]*mesos.Resource{util.NewScalarResourceWithReservation("mem", 400, "principal", "role")},
+	)
+	task.Command = util.NewCommandInfo("pwd")
+	task.Executor = util.NewExecutorInfo(util.NewExecutorID("test-exec"), task.Command)
+	tasks := []*mesos.TaskInfo{task}
+
+	operations := []*mesos.Offer_Operation{util.NewLaunchOperation(tasks)}
+
+	stat, err := driver.AcceptOffers(
+		[]*mesos.OfferID{offer.Id},
+		operations,
+		&mesos.Filters{},
+	)
+	suite.Equal(mesos.Status_DRIVER_RUNNING, stat)
+	suite.Error(err)
+}
+
+func (suite *SchedulerTestSuite) TestSchdulerDriverAcceptOffers() {
+	driver := newTestSchedulerDriver(suite.T(), driverConfigMessenger(NewMockScheduler(), suite.framework, suite.master, nil, mockedMessenger()))
+
+	go func() {
+		driver.Run()
+	}()
+	<-driver.started
+	driver.setConnected(true) // simulated
+	suite.True(driver.Running())
+
+	volumes := []*mesos.Resource{util.NewVolumeResourceWithReservation(400, "containerPath", "persistenceId", mesos.Volume_RW.Enum(), "principal", "role")}
+
+	operations := []*mesos.Offer_Operation{util.NewCreateOperation(volumes)}
+
+	stat, err := driver.AcceptOffers(
+		[]*mesos.OfferID{{}},
+		operations,
+		&mesos.Filters{},
+	)
+	suite.NoError(err)
+	suite.Equal(mesos.Status_DRIVER_RUNNING, stat)
+}
+
+func (suite *SchedulerTestSuite) TestSchdulerDriverLaunchTasksUnstarted() {
 	sched := NewMockScheduler()
 	sched.On("Error").Return()
 

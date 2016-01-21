@@ -89,6 +89,8 @@ func main() {
 		flag.String("mesos-authentication-principal", "", "Mesos authentication principal")
 	mesosAuthSecretFile :=
 		flag.String("mesos-authentication-secret-file", "", "Mesos authentication secret file")
+	mesosOfferRefuseSeconds :=
+		flag.Float64("mesos-offer-refuse-seconds", 15, "Mesos offer refuse seconds")
 	authProvider :=
 		flag.String("mesos-authentication-provider", sasl.ProviderName,
 			fmt.Sprintf("Authentication provider to use, default is SASL that supports mechanisms: %+v", mech.ListSupported()))
@@ -171,7 +173,7 @@ func main() {
 		*sandboxDisk,
 		*sandboxCpu,
 		*sandboxMem,
-	)
+		*mesosOfferRefuseSeconds)
 	etcdScheduler.ExecutorPath = *executorPath
 	etcdScheduler.Master = *master
 	etcdScheduler.FrameworkName = *frameworkName

@@ -97,6 +97,7 @@ type EtcdScheduler struct {
 	diskPerTask                  float64
 	cpusPerTask                  float64
 	memPerTask                   float64
+	offerRefuseSeconds           float64
 	pauseChan                    chan struct{}
 	chillSeconds                 time.Duration
 	autoReseedEnabled            bool
@@ -132,6 +133,7 @@ func NewEtcdScheduler(
 	diskPerTask float64,
 	cpusPerTask float64,
 	memPerTask float64,
+	offerRefuseSeconds float64,
 ) *EtcdScheduler {
 	return &EtcdScheduler{
 		Stats: Stats{
@@ -163,6 +165,7 @@ func NewEtcdScheduler(
 		diskPerTask:                  diskPerTask,
 		cpusPerTask:                  cpusPerTask,
 		memPerTask:                   memPerTask,
+		offerRefuseSeconds:           offerRefuseSeconds,
 		reconciliationInfo:           map[string]string{},
 	}
 }
@@ -465,8 +468,8 @@ func (s *EtcdScheduler) decline(
 	driver.DeclineOffer(
 		offer.Id,
 		&mesos.Filters{
-			// Decline offers for 5 seconds.
-			RefuseSeconds: proto.Float64(float64(5)),
+			// Decline offers for configured interval.
+			RefuseSeconds: proto.Float64(s.offerRefuseSeconds),
 		},
 	)
 }

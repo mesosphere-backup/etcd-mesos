@@ -48,7 +48,7 @@ func main() {
 	if libprocessIP := os.Getenv("LIBPROCESS_IP"); libprocessIP != "" {
 		address = net.ParseIP(libprocessIP)
 		if address == nil {
-			log.Warning("failed to parse IP address from LIBPROCESS_IP envvar %q", libprocessIP)
+			log.Warningf("failed to parse IP address from LIBPROCESS_IP envvar %q", libprocessIP)
 		}
 	}
 	dconfig := executor.DriverConfig{

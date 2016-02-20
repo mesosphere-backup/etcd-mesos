@@ -45,9 +45,14 @@ import (
 )
 
 const (
+	// portsPerTask: rpcPort, clientPort, httpPort
 	portsPerTask   = 3
 	notReseeding   = 0
 	reseedUnderway = 1
+
+	executorWantsCpus  = 0.1
+	executorWantsMem   = 32
+	executorWantsPorts = 1
 )
 
 // State represents the mutability of the scheduler.
@@ -221,6 +226,11 @@ func (s *EtcdScheduler) ResourceOffers(
 	driver scheduler.SchedulerDriver,
 	offers []*mesos.Offer,
 ) {
+	var (
+		cpusWanted  = s.cpusPerTask + executorWantsCpus
+		memWanted   = s.memPerTask + executorWantsMem
+		portsWanted = uint64(portsPerTask + executorWantsPorts)
+	)
 	for _, offer := range offers {
 		resources := parseOffer(offer)
 
@@ -262,15 +272,15 @@ func (s *EtcdScheduler) ResourceOffers(
 			log.V(2).Infoln("-single-instance-per-slave is false, continuing.")
 		}
 
-		if resources.cpus < s.cpusPerTask {
+		if resources.cpus < cpusWanted {
 			log.V(1).Infoln("Offer cpu is insufficient.")
 		}
 
-		if resources.mems < s.memPerTask {
+		if resources.mems < memWanted {
 			log.V(1).Infoln("Offer memory is insufficient.")
 		}
 
-		if totalPorts < portsPerTask {
+		if totalPorts < portsWanted {
 			log.V(1).Infoln("Offer ports are insuffient.")
 		}
 
@@ -278,9 +288,9 @@ func (s *EtcdScheduler) ResourceOffers(
 			log.V(1).Infoln("Offer disk is insufficient.")
 		}
 
-		if resources.cpus >= s.cpusPerTask &&
-			resources.mems >= s.memPerTask &&
-			totalPorts >= portsPerTask &&
+		if resources.cpus >= cpusWanted &&
+			resources.mems >= memWanted &&
+			totalPorts >= portsWanted &&
 			resources.disk >= s.diskPerTask &&
 			s.offerCache.Push(offer) {
 
@@ -884,12 +894,15 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		return
 	}
 
-	// TODO(tyler) this is a broken hack
-	resources := parseOffer(offer)
-	lowest := *resources.ports[0].Begin
-	rpcPort := lowest
-	clientPort := lowest + 1
-	httpPort := lowest + 2
+	// TODO(tyler) this is a broken hack; task gets low ports, executor gets high ports
+	var (
+		resources      = parseOffer(offer)
+		lowest         = *resources.ports[0].Begin
+		rpcPort        = lowest
+		clientPort     = lowest + 1
+		httpPort       = lowest + 2
+		libprocessPort = lowest + 3
+	)
 
 	s.mut.Lock()
 	var clusterType string
@@ -928,7 +941,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 
 	configSummary := node.String()
 	taskID := &mesos.TaskID{Value: &configSummary}
-	executor := s.newExecutorInfo(node, s.executorUris)
+	executor := s.newExecutorInfo(node, s.executorUris, libprocessPort)
 	task := &mesos.TaskInfo{
 		Data:     serializedNodes,
 		Name:     proto.String("etcd-server"),
@@ -940,7 +953,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 			util.NewScalarResource("mem", s.memPerTask),
 			util.NewScalarResource("disk", s.diskPerTask),
 			util.NewRangesResource("ports", []*mesos.Value_Range{
-				util.NewValueRange(uint64(rpcPort), uint64(httpPort)),
+				util.NewValueRange(uint64(rpcPort), uint64(rpcPort+portsPerTask-1)),
 			}),
 		},
 		Discovery: &mesos.DiscoveryInfo{
@@ -1198,22 +1211,33 @@ func ServeExecutorArtifact(path, address string, artifactPort int) (*string, err
 func (s *EtcdScheduler) newExecutorInfo(
 	node *config.Node,
 	executorURIs []*mesos.CommandInfo_URI,
+	libprocessPort uint64,
 ) *mesos.ExecutorInfo {
 
-	_, bin := filepath.Split(s.ExecutorPath)
-	execmd := fmt.Sprintf("./%s -log_dir=./", bin)
-
+	var (
+		_, bin = filepath.Split(s.ExecutorPath)
+		execmd = fmt.Sprintf("./" + bin)
+		ci     = &mesos.CommandInfo{
+			Value: proto.String(execmd),
+			Shell: proto.Bool(false),
+			Uris:  executorURIs,
+		}
+	)
+	ci.Arguments = append(ci.Arguments, execmd)
+	ci.Arguments = append(ci.Arguments, "-log_dir=./")
+	ci.Arguments = append(ci.Arguments, "-driver-port="+strconv.Itoa(int(libprocessPort)))
 	return &mesos.ExecutorInfo{
 		ExecutorId: util.NewExecutorID(node.Name),
 		Name:       proto.String("etcd"),
-		Source:     proto.String("go_test"),
-		Command: &mesos.CommandInfo{
-			Value: proto.String(execmd),
-			Uris:  executorURIs,
-		},
+		Source:     proto.String(s.FrameworkName),
+		Command:    ci,
 		Resources: []*mesos.Resource{
-			util.NewScalarResource("cpus", 0.1),
-			util.NewScalarResource("mem", 32),
+			util.NewScalarResource("cpus", executorWantsCpus),
+			util.NewScalarResource("mem", executorWantsMem),
+			util.NewRangesResource("ports", []*mesos.Value_Range{
+				// see hack in launchOne(), libprocessPort is the base of the executor port resource range
+				util.NewValueRange(libprocessPort, libprocessPort+executorWantsPorts-1),
+			}),
 		},
 	}
 }

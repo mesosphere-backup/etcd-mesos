@@ -20,6 +20,8 @@ package main
 
 import (
 	"flag"
+	"net"
+	"os"
 	"time"
 
 	log "github.com/golang/glog"
@@ -29,15 +31,29 @@ import (
 )
 
 func main() {
-	launchTimeout :=
-		flag.Uint("launch-timeout", 240,
+	var (
+		launchTimeout = flag.Uint("launch-timeout", 240,
 			"Seconds to retry launching an etcd instance for before giving up. "+
 				"This should be long enough for a port occupied by a killed process "+
 				"to be vacated.")
+		driverPort = flag.Uint("driver-port", 0, "Libprocess port for the executor driver")
+	)
 	flag.Parse()
+	if *driverPort == 0 {
+		log.Fatal("missing or incorrectly specified driver-port flag, must be > 0")
+	}
 	log.Infoln("Starting etcd Executor")
 
+	var address net.IP
+	if libprocessIP := os.Getenv("LIBPROCESS_IP"); libprocessIP != "" {
+		address = net.ParseIP(libprocessIP)
+		if address == nil {
+			log.Warningf("failed to parse IP address from LIBPROCESS_IP envvar %q", libprocessIP)
+		}
+	}
 	dconfig := executor.DriverConfig{
+		BindingAddress: address,
+		BindingPort:    uint16(*driverPort),
 		Executor: etcdexecutor.New(
 			time.Duration(*launchTimeout) * time.Second,
 		),

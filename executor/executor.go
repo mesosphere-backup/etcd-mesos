@@ -199,7 +199,7 @@ func (e *Executor) etcdHarness(
 	}
 	_, err = driver.SendStatusUpdate(runStatus)
 	if err != nil {
-		log.Errorf("Got error sending status update, terminating: ", err)
+		log.Errorf("Got error sending status update, terminating: %v", err)
 		handleFailure(driver, taskInfo)
 	}
 

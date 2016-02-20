@@ -44,7 +44,7 @@ func TestPush(t *testing.T) {
 			oc.Push(newOffer(o, o))
 		}
 		if got := oc.Len(); got != tt.want {
-			t.Errorf("test #%d: got : %s, want: %s", i, got, tt.want)
+			t.Errorf("test #%d: got : %d, want: %d", i, got, tt.want)
 		}
 	}
 }
@@ -71,7 +71,7 @@ func TestRescind(t *testing.T) {
 			oc.Rescind(util.NewOfferID(r))
 		}
 		if got := oc.Len(); got != tt.want {
-			t.Errorf("test #%d: got : %s, want: %s", i, got, tt.want)
+			t.Errorf("test #%d: got : %d, want: %d", i, got, tt.want)
 		}
 	}
 
@@ -117,7 +117,7 @@ func TestBlockingPop(t *testing.T) {
 		}()
 
 		if got != tt.want {
-			t.Errorf("test #%d: got : %s, want: %s", i, got, tt.want)
+			t.Errorf("test #%d: got : %d, want: %d", i, got, tt.want)
 		}
 	}
 }

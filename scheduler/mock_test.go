@@ -151,7 +151,12 @@ func (m *MockSchedulerDriver) Wait() {
 	defer m.Unlock()
 	m.Called()
 }
-
+func (m *MockSchedulerDriver) AcceptOffers(offerIDs []*mesos.OfferID, operations []*mesos.Offer_Operation, filters *mesos.Filters) (mesos.Status, error) {
+	m.Lock()
+	defer m.Unlock()
+	args := m.Called(offerIDs, operations, filters)
+	return status(args, 0), args.Error(1)
+}
 func status(args mock.Arguments, at int) (val mesos.Status) {
 	if x := args.Get(at); x != nil {
 		val = x.(mesos.Status)

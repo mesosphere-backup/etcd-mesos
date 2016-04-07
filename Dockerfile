@@ -13,6 +13,7 @@ ENV DISK_LIMIT=4096
 ENV CPU_LIMIT=1
 ENV MEM_LIMIT=1024
 CMD sh -xc '/work/bin/etcd-mesos-scheduler -alsologtostderr=true \
+    -address=${LIBPROCESS_IP} \
     -framework-name=${FRAMEWORK_NAME} \
     -cluster-size=${CLUSTER_SIZE} \
     -master=${MESOS_MASTER} \

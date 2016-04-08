@@ -190,13 +190,19 @@ func main() {
 	cred := (*mesos.Credential)(nil)
 	if *mesosAuthPrincipal != "" {
 		fwinfo.Principal = proto.String(*mesosAuthPrincipal)
-		secret, err := ioutil.ReadFile(*mesosAuthSecretFile)
-		if err != nil {
-			log.Fatal(err)
-		}
 		cred = &mesos.Credential{
 			Principal: proto.String(*mesosAuthPrincipal),
-			Secret:    secret,
+		}
+		if *mesosAuthSecretFile != "" {
+			_, err := os.Stat(*mesosAuthSecretFile)
+			if err != nil {
+				log.Fatal("missing secret file: ", err.Error())
+			}
+			secret, err := ioutil.ReadFile(*mesosAuthSecretFile)
+			if err != nil {
+				log.Fatal("failed to read secret file: ", err.Error())
+			}
+			cred.Secret = proto.String(string(secret))
 		}
 	}
 

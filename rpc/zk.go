@@ -19,14 +19,19 @@
 package rpc
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 
+	"github.com/gogo/protobuf/proto"
 	log "github.com/golang/glog"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 	"github.com/samuel/go-zookeeper/zk"
@@ -236,6 +241,115 @@ func ClearZKState(
 	}
 }
 
+type decoder func([]byte, interface{}) error
+
+var infoCodecs = map[string]decoder{
+	"info_": func(b []byte, i interface{}) error {
+		return proto.Unmarshal(b, i.(proto.Message))
+	},
+	"json.info_": json.Unmarshal,
+}
+
+type nodeGetter func(string) ([]byte, error)
+
+func masterInfoFromZKNodes(children []string, ng nodeGetter, codecs map[string]decoder) (*mesos.MasterInfo, string, error) {
+	type nodeDecoder struct {
+		node    string
+		decoder decoder
+	}
+	// for example: 001 -> {info_001,proto.Unmarshal} or 001 -> {json.info_001,json.Unmarshal}
+	mapped := make(map[string]nodeDecoder, len(children))
+
+	// process children deterministically, preferring json to protobuf
+	sort.Sort(sort.Reverse(sort.StringSlice(children)))
+childloop:
+	for i := range children {
+		for p := range codecs {
+			if strings.HasPrefix(children[i], p) {
+				key := children[i][len(p):]
+				if _, found := mapped[key]; found {
+					continue childloop
+				}
+				mapped[key] = nodeDecoder{children[i], codecs[p]}
+				children[i] = key
+				continue childloop
+			}
+		}
+	}
+
+	if len(mapped) == 0 {
+		return nil, "", errors.New("Could not find current mesos master in zk")
+	}
+
+	sort.Sort(sort.StringSlice(children))
+	var (
+		info   mesos.MasterInfo
+		lowest = children[0]
+	)
+	rawData, err := ng(mapped[lowest].node)
+	if err == nil {
+		err = mapped[lowest].decoder(rawData, &info)
+	}
+	return &info, string(rawData), err
+}
+
+// byteOrder is instantiated at package initialization time to the
+// binary.ByteOrder of the running process.
+// https://groups.google.com/d/msg/golang-nuts/zmh64YkqOV8/iJe-TrTTeREJ
+var byteOrder = func() binary.ByteOrder {
+	switch x := uint32(0x01020304); *(*byte)(unsafe.Pointer(&x)) {
+	case 0x01:
+		return binary.BigEndian
+	case 0x04:
+		return binary.LittleEndian
+	}
+	panic("unknown byte order")
+}()
+
+func addressFrom(info *mesos.MasterInfo) string {
+	var (
+		host string
+		port int
+	)
+	if addr := info.GetAddress(); addr != nil {
+		host = addr.GetHostname()
+		if host == "" {
+			host = addr.GetIp()
+		}
+		port = int(addr.GetPort())
+	}
+	if host == "" {
+		host = info.GetHostname()
+		if host == "" {
+			if ipAsInt := info.GetIp(); ipAsInt != 0 {
+				ip := make([]byte, 4)
+				byteOrder.PutUint32(ip, ipAsInt)
+				host = net.IP(ip).To4().String()
+			}
+		}
+		port = int(info.GetPort())
+	}
+	if host == "" {
+		return ""
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+func addressFromRaw(rawData string) (string, error) {
+	// scrape the contents of the raw buffer for anything that looks like a PID
+	var (
+		mraw   = strings.Split(string(rawData), "@")[1]
+		mraw2  = strings.Split(mraw, ":")
+		host   = mraw2[0]
+		port   = 0
+		_, err = fmt.Sscanf(mraw2[1], "%d", &port)
+	)
+	if err != nil {
+		return "", err
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port)), nil
+}
+
 func GetMasterFromZK(zkURI string) (string, error) {
 	servers, chroot, err := ParseZKURI(zkURI)
 	c, _, err := zk.Connect(servers, RPC_TIMEOUT)
@@ -248,27 +362,17 @@ func GetMasterFromZK(zkURI string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
-	lowest := ""
-	ss := sort.StringSlice(children)
-	ss.Sort()
-	for i := 0; i < len(ss); i++ {
-		if strings.HasPrefix(ss[i], "info_") {
-			lowest = ss[i]
-			break
-		}
+	getter := func(node string) (rawData []byte, err error) {
+		rawData, _, err = c.Get(chroot + "/" + node)
+		return
 	}
-	if lowest == "" {
-		return "", errors.New("Could not find current mesos master in zk")
-	}
-	rawData, _, err := c.Get(chroot + "/" + lowest)
-	mraw := strings.Split(string(rawData), "@")[1]
-	mraw2 := strings.Split(mraw, ":")
-	host := mraw2[0]
-	port := uint16(0)
-	_, err = fmt.Sscanf(mraw2[1], "%d", &port)
+	info, rawData, err := masterInfoFromZKNodes(children, getter, infoCodecs)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s:%d", host, port), nil
+	addr := addressFrom(info)
+	if addr == "" {
+		addr, err = addressFromRaw(rawData)
+	}
+	return addr, err
 }

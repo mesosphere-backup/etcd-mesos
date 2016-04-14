@@ -560,8 +560,9 @@ func (s *EtcdScheduler) attemptMasterSync(driver scheduler.SchedulerDriver) {
 					return
 				}
 			}
+		} else {
+			log.Error(err)
 		}
-		log.Error(err)
 		time.Sleep(time.Duration(backoff) * time.Second)
 		backoff = int(math.Min(float64(backoff<<1), 8))
 	}

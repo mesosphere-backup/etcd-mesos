@@ -83,6 +83,8 @@ func main() {
 		flag.String("etcdctl-bin", "./bin/etcdctl", "Path to etcdctl binary")
 	address :=
 		flag.String("address", "", "Binding address for scheduler and artifact server")
+	exteriorAddress :=
+		flag.String("exteriorAddress", "", "Address for agents to request executor binary")
 	driverPort :=
 		flag.Int("driver-port", 0, "Binding port for scheduler driver")
 	mesosAuthPrincipal :=
@@ -127,7 +129,7 @@ func main() {
 	}
 
 	executorUris := []*mesos.CommandInfo_URI{}
-	execUri, err := etcdscheduler.ServeExecutorArtifact(*executorPath, *address, *artifactPort)
+	execUri, err := etcdscheduler.ServeExecutorArtifact(*executorPath, *exteriorAddress, *artifactPort)
 	if err != nil {
 		log.Errorf("Could not stat executor binary: %v", err)
 		return
@@ -136,7 +138,7 @@ func main() {
 		Value:      execUri,
 		Executable: proto.Bool(true),
 	})
-	etcdUri, err := etcdscheduler.ServeExecutorArtifact(*etcdPath, *address, *artifactPort)
+	etcdUri, err := etcdscheduler.ServeExecutorArtifact(*etcdPath, *exteriorAddress, *artifactPort)
 	if err != nil {
 		log.Errorf("Could not stat etcd binary: %v", err)
 		return
@@ -145,7 +147,7 @@ func main() {
 		Value:      etcdUri,
 		Executable: proto.Bool(true),
 	})
-	etcdctlUri, err := etcdscheduler.ServeExecutorArtifact(*etcdctlPath, *address, *artifactPort)
+	etcdctlUri, err := etcdscheduler.ServeExecutorArtifact(*etcdctlPath, *exteriorAddress, *artifactPort)
 	if err != nil {
 		log.Errorf("Could not stat etcd binary: %v", err)
 		return

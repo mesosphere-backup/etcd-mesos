@@ -124,6 +124,10 @@ func main() {
 		}
 	}
 
+	if *advertiseAddress == "" {
+		*advertiseAddress = *address
+	}
+
 	if *weburi == "" {
 		*weburi = fmt.Sprintf("http://%s:%d/", *address, *adminPort)
 	}

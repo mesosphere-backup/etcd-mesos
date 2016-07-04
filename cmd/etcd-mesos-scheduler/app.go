@@ -237,12 +237,13 @@ func main() {
 	}
 
 	config := scheduler.DriverConfig{
-		Scheduler:      etcdScheduler,
-		Framework:      fwinfo,
-		Master:         etcdScheduler.Master,
-		Credential:     cred,
-		BindingAddress: bindingAddress,
-		BindingPort:    uint16(*driverPort),
+		Scheduler:        etcdScheduler,
+		Framework:        fwinfo,
+		Master:           etcdScheduler.Master,
+		Credential:       cred,
+		BindingAddress:   bindingAddress,
+		BindingPort:      uint16(*driverPort),
+		PublishedAddress: advertiseAddress,
 		WithAuthContext: func(ctx context.Context) context.Context {
 			ctx = auth.WithLoginProvider(ctx, *authProvider)
 			ctx = sasl.WithBindingAddress(ctx, bindingAddress)

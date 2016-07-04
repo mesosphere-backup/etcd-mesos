@@ -165,6 +165,7 @@ func main() {
 	log.V(2).Info("Serving executor artifacts...")
 
 	bindingAddress := parseIP(*address)
+	advertisingAddress := parseIP(*advertiseAddress)
 
 	// chillFactor is the number of seconds that are slept for to allow for
 	// convergence across the cluster during mutations.
@@ -243,7 +244,7 @@ func main() {
 		Credential:       cred,
 		BindingAddress:   bindingAddress,
 		BindingPort:      uint16(*driverPort),
-		PublishedAddress: advertiseAddress,
+		PublishedAddress: advertisingAddress,
 		WithAuthContext: func(ctx context.Context) context.Context {
 			ctx = auth.WithLoginProvider(ctx, *authProvider)
 			ctx = sasl.WithBindingAddress(ctx, bindingAddress)

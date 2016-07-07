@@ -34,6 +34,8 @@ type Node struct {
 	ReseedPort uint64 `json:"httpPort"`
 	Type       string `json:"type"`
 	SlaveID    string `json:"slaveID"`
+	Username   string `json:"username"`
+	Password   string `json:"password"`
 }
 
 // ErrUnmarshal is returned whenever config unmarshalling
@@ -42,10 +44,10 @@ var ErrUnmarshal = errors.New("config: unmarshaling failed")
 // Parse attempts to deserialize a config.Node from a byte array.
 func Parse(text string) (*Node, error) {
 	fs := strings.Fields(string(text))
-	if len(fs) != 5 {
+	if len(fs) != 7 {
 		return nil, ErrUnmarshal
 	}
-	n := &Node{Name: fs[0], Host: fs[1]}
+	n := &Node{Name: fs[0], Host: fs[1], Username: fs[5], Password: fs[7]}
 
 	var err error
 	if n.RPCPort, err = strconv.ParseUint(fs[2], 10, 64); err != nil {
@@ -63,5 +65,5 @@ func Parse(text string) (*Node, error) {
 // string representation of a Node.
 func (n Node) String() string {
 	return fmt.Sprintf(
-		"%s %s %d %d %d", n.Name, n.Host, n.RPCPort, n.ClientPort, n.ReseedPort)
+		"%s %s %d %d %d %s %s", n.Name, n.Host, n.RPCPort, n.ClientPort, n.ReseedPort, n.Username, n.Password)
 }

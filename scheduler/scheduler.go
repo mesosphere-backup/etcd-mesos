@@ -110,6 +110,8 @@ type EtcdScheduler struct {
 	livelockWindow               *time.Time
 	reseeding                    int32
 	reconciliationInfo           map[string]string
+	etcdUsername                 string
+	etcdPassword                 string
 }
 
 type Stats struct {
@@ -139,6 +141,8 @@ func NewEtcdScheduler(
 	cpusPerTask float64,
 	memPerTask float64,
 	offerRefuseSeconds float64,
+	etcdUsername string,
+	etcdPassword string,
 ) *EtcdScheduler {
 	return &EtcdScheduler{
 		Stats: Stats{
@@ -172,6 +176,8 @@ func NewEtcdScheduler(
 		memPerTask:                   memPerTask,
 		offerRefuseSeconds:           offerRefuseSeconds,
 		reconciliationInfo:           map[string]string{},
+		etcdUsername:                 etcdUsername,
+		etcdPassword:                 etcdPassword,
 	}
 }
 
@@ -924,6 +930,8 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 		ReseedPort: httpPort,
 		Type:       clusterType,
 		SlaveID:    offer.GetSlaveId().GetValue(),
+		Username:   s.etcdUsername,
+		Password:   s.etcdPassword,
 	}
 	running := []*config.Node{node}
 	for _, r := range s.running {

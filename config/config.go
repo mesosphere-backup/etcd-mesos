@@ -47,7 +47,7 @@ func Parse(text string) (*Node, error) {
 	if len(fs) != 7 {
 		return nil, ErrUnmarshal
 	}
-	n := &Node{Name: fs[0], Host: fs[1], Username: fs[5], Password: fs[7]}
+	n := &Node{Name: fs[0], Host: fs[1], Username: fs[5], Password: fs[6]}
 
 	var err error
 	if n.RPCPort, err = strconv.ParseUint(fs[2], 10, 64); err != nil {

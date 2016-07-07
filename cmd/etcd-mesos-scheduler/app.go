@@ -81,6 +81,10 @@ func main() {
 		flag.String("etcd-bin", "./bin/etcd", "Path to etcd binary")
 	etcdctlPath :=
 		flag.String("etcdctl-bin", "./bin/etcdctl", "Path to etcdctl binary")
+	etcdUsername :=
+		flag.String("etcd-username", "", "Username to use when querying etcd")
+	etcdPassword :=
+		flag.String("etcd-password", "", "Password to use when querying etcd")
 	address :=
 		flag.String("address", "", "Binding address for scheduler and artifact server")
 	driverPort :=
@@ -173,7 +177,10 @@ func main() {
 		*sandboxDisk,
 		*sandboxCpu,
 		*sandboxMem,
-		*mesosOfferRefuseSeconds)
+		*mesosOfferRefuseSeconds,
+		*etcdUsername,
+		*etcdPassword,
+	)
 	etcdScheduler.ExecutorPath = *executorPath
 	etcdScheduler.Master = *master
 	etcdScheduler.FrameworkName = *frameworkName

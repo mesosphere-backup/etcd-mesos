@@ -114,19 +114,8 @@ func main() {
 			"the cost of a single node being lost, livelock, and data loss.")
 	}
 
-	if *address == "" {
-		hostname, err := os.Hostname()
-		if err == nil {
-			*address = hostname
-		} else {
-			log.Errorf("Could not set default binding to hostname.  Defaulting to 127.0.0.1")
-			*address = "127.0.0.1"
-		}
-	}
-
-	if *advertiseAddress == "" {
-		*advertiseAddress = *address
-	}
+	var explicitAdvertise bool
+	*address, *advertiseAddress, explicitAdvertise = defaultAddresses(*address, *advertiseAddress)
 
 	if *weburi == "" {
 		*weburi = fmt.Sprintf("http://%s:%d/", *address, *adminPort)
@@ -165,7 +154,6 @@ func main() {
 	log.V(2).Info("Serving executor artifacts...")
 
 	bindingAddress := parseIP(*address)
-	advertisingAddress := parseIP(*advertiseAddress)
 
 	// chillFactor is the number of seconds that are slept for to allow for
 	// convergence across the cluster during mutations.
@@ -244,12 +232,14 @@ func main() {
 		Credential:       cred,
 		BindingAddress:   bindingAddress,
 		BindingPort:      uint16(*driverPort),
-		PublishedAddress: advertisingAddress,
 		WithAuthContext: func(ctx context.Context) context.Context {
 			ctx = auth.WithLoginProvider(ctx, *authProvider)
 			ctx = sasl.WithBindingAddress(ctx, bindingAddress)
 			return ctx
 		},
+	}
+	if explicitAdvertise {
+		config.PublishedAddress = parseIP(*advertiseAddress)
 	}
 
 	driver, err := scheduler.NewMesosSchedulerDriver(config)
@@ -269,4 +259,24 @@ func main() {
 			stat.String(),
 			err.Error())
 	}
+}
+
+func defaultAddresses(address, advertiseAddress string) (string, string, bool) {
+	if address == "" {
+		hostname, err := os.Hostname()
+		if err == nil {
+			address = hostname
+		} else {
+			log.Errorf("Could not set default binding to hostname.  Defaulting to 127.0.0.1")
+			address = "127.0.0.1"
+		}
+	}
+
+	explicitAdvertise := true
+	if advertiseAddress == "" {
+		advertiseAddress = address
+		explicitAdvertise = false
+	}
+
+	return address, advertiseAddress, explicitAdvertise
 }

@@ -25,7 +25,7 @@ import (
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
-	mesos "github.com/mesos/mesos-go/mesosproto"
+	mesos "github.com/mesos/mesos-go/api/v0/mesosproto"
 )
 
 func TestAddressFrom(t *testing.T) {

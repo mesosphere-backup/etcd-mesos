@@ -25,7 +25,7 @@ import (
 	"time"
 
 	log "github.com/golang/glog"
-	"github.com/mesos/mesos-go/executor"
+	"github.com/mesos/mesos-go/api/v0/executor"
 
 	etcdexecutor "github.com/mesosphere/etcd-mesos/executor"
 )

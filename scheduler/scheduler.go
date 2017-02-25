@@ -34,9 +34,9 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	log "github.com/golang/glog"
-	mesos "github.com/mesos/mesos-go/mesosproto"
-	util "github.com/mesos/mesos-go/mesosutil"
-	"github.com/mesos/mesos-go/scheduler"
+	mesos "github.com/mesos/mesos-go/api/v0/mesosproto"
+	util "github.com/mesos/mesos-go/api/v0/mesosutil"
+	"github.com/mesos/mesos-go/api/v0/scheduler"
 	"github.com/samuel/go-zookeeper/zk"
 
 	"github.com/mesosphere/etcd-mesos/config"

@@ -19,7 +19,7 @@
 package executor
 
 import (
-	mesos "github.com/mesos/mesos-go/mesosproto"
+	mesos "github.com/mesos/mesos-go/api/v0/mesosproto"
 	//"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )

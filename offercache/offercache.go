@@ -22,7 +22,7 @@ import (
 	"sync"
 
 	log "github.com/golang/glog"
-	mesos "github.com/mesos/mesos-go/mesosproto"
+	mesos "github.com/mesos/mesos-go/api/v0/mesosproto"
 )
 
 type OfferCache struct {

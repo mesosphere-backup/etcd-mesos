@@ -28,11 +28,11 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	log "github.com/golang/glog"
-	"github.com/mesos/mesos-go/auth"
-	"github.com/mesos/mesos-go/auth/sasl"
-	"github.com/mesos/mesos-go/auth/sasl/mech"
-	mesos "github.com/mesos/mesos-go/mesosproto"
-	"github.com/mesos/mesos-go/scheduler"
+	"github.com/mesos/mesos-go/api/v0/auth"
+	"github.com/mesos/mesos-go/api/v0/auth/sasl"
+	"github.com/mesos/mesos-go/api/v0/auth/sasl/mech"
+	mesos "github.com/mesos/mesos-go/api/v0/mesosproto"
+	"github.com/mesos/mesos-go/api/v0/scheduler"
 	"github.com/samuel/go-zookeeper/zk"
 	"golang.org/x/net/context"
 

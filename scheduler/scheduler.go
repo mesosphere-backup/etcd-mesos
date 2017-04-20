@@ -583,7 +583,7 @@ func (s *EtcdScheduler) isInSync() bool {
 	log.V(2).Infof("running: %+v", s.running)
 	log.V(2).Infof("heardFrom: %+v", s.heardFrom)
 	log.V(2).Infof("reconciliationInfo: %+v", s.reconciliationInfo)
-	for taskID, _ := range s.reconciliationInfo {
+	for taskID := range s.reconciliationInfo {
 		_, present := s.heardFrom[taskID]
 		if !present {
 			return false
@@ -962,7 +962,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 			Name:       proto.String("etcd-server"),
 			Ports: &mesos.Ports{
 				Ports: []*mesos.Port{
-					&mesos.Port{
+					{
 						Number:   proto.Uint32(uint32(rpcPort)),
 						Protocol: proto.String("tcp"),
 					},
@@ -972,7 +972,7 @@ func (s *EtcdScheduler) launchOne(driver scheduler.SchedulerDriver) {
 					// names for DiscoveryInfo.  When it does, we should
 					// create a name for clients to use.  We want to keep
 					// the rpcPort accessible at _etcd-server._tcp.<fwname>.mesos
-					&mesos.Port{
+					{
 						Number:   proto.Uint32(uint32(clientPort)),
 						Protocol: proto.String("client"),
 					},

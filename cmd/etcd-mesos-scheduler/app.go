@@ -147,7 +147,7 @@ func main() {
 	})
 	etcdctlUri, err := etcdscheduler.ServeExecutorArtifact(*etcdctlPath, *address, *artifactPort)
 	if err != nil {
-		log.Errorf("Could not stat etcd binary: %v", err)
+		log.Errorf("Could not stat etcdctl binary: %v", err)
 		return
 	}
 	executorUris = append(executorUris, &mesos.CommandInfo_URI{

@@ -29,3 +29,8 @@ _testmain.go
 *.test
 *.prof
 *.swp
+*.bak
+
+# IntelliJ Idea/Gogland stuff
+.idea
+*.iml

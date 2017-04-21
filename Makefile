@@ -3,8 +3,10 @@ repo_path="${org_path}/etcd-mesos"
 mkfile_path	:= $(abspath $(lastword $(MAKEFILE_LIST)))
 current_dir	:= $(patsubst %/,%,$(dir $(mkfile_path)))
 
+# TODO document possible environment variables
 DOCKER_ORG=mesosphere
 VERSION=0.1.3
+DOCKER_PUSH_ENABLED=0
 
 default: clean build
 
@@ -86,6 +88,7 @@ cover:
 test:
 	@govendor test -race +local
 
+.SILENT: docker_build
 docker_build:
 	docker run --rm -v "$$PWD":/go/src/github.com/mesosphere/etcd-mesos \
 		-e GOPATH=/go \
@@ -93,9 +96,10 @@ docker_build:
 		golang:1.8.1 \
 		make
 
+.SILENT: docker
 docker: docker_build
 	docker build --no-cache -t $(DOCKER_ORG)/etcd-mesos:$(VERSION) .
-	docker push $(DOCKER_ORG)/etcd-mesos:$(VERSION)
+	test ${DOCKER_PUSH_ENABLED} = 0 || docker push $(DOCKER_ORG)/etcd-mesos:$(VERSION)
 
 # TODO add configurable Marathon IP
 marathon: docker

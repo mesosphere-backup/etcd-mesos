@@ -1,0 +1,268 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "E2a5TaCbwqs7PwP1fvfWLhvgr38=",
+			"comment": "v2.2.0-rc.0-72-g106d918",
+			"path": "github.com/coreos/etcd/Godeps/_workspace/src/github.com/coreos/go-systemd/journal",
+			"revision": "106d918dd585a63ee0045740fe040daa44669a77"
+		},
+		{
+			"checksumSHA1": "CuAA1asWWe+olOG/nHvFBnCzg0Q=",
+			"comment": "v2.2.0-rc.0-72-g106d918",
+			"path": "github.com/coreos/etcd/Godeps/_workspace/src/github.com/coreos/pkg/capnslog",
+			"revision": "106d918dd585a63ee0045740fe040daa44669a77"
+		},
+		{
+			"checksumSHA1": "zlpe0MT0wtPGQ/bQ+/PsRr5XHzo=",
+			"comment": "v2.2.0-rc.0-72-g106d918",
+			"path": "github.com/coreos/etcd/Godeps/_workspace/src/github.com/gogo/protobuf/proto",
+			"revision": "106d918dd585a63ee0045740fe040daa44669a77"
+		},
+		{
+			"checksumSHA1": "368DwFDT+Mei+l+xkYA1oNkxkVo=",
+			"comment": "v2.2.0-rc.0-72-g106d918",
+			"path": "github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context",
+			"revision": "106d918dd585a63ee0045740fe040daa44669a77"
+		},
+		{
+			"checksumSHA1": "KLDTB9+K+lMT5J9rlzvNSo6GJkU=",
+			"comment": "v2.2.0-rc.0-72-g106d918",
+			"path": "github.com/coreos/etcd/etcdserver/etcdhttp/httptypes",
+			"revision": "106d918dd585a63ee0045740fe040daa44669a77"
+		},
+		{
+			"checksumSHA1": "gMOSUWpTvpGg0nM4n57w0umnjuI=",
+			"comment": "v2.2.0-rc.0-72-g106d918",
+			"path": "github.com/coreos/etcd/etcdserver/stats",
+			"revision": "106d918dd585a63ee0045740fe040daa44669a77"
+		},
+		{
+			"checksumSHA1": "B9gDxCdY8FPDfxOVBY4Al1orSGw=",
+			"comment": "v2.2.0-rc.0-72-g106d918",
+			"path": "github.com/coreos/etcd/pkg/types",
+			"revision": "106d918dd585a63ee0045740fe040daa44669a77"
+		},
+		{
+			"checksumSHA1": "hs5p9pUQro/S6A9uHixO8yT0nQQ=",
+			"comment": "v2.2.0-rc.0-72-g106d918",
+			"path": "github.com/coreos/etcd/raft",
+			"revision": "106d918dd585a63ee0045740fe040daa44669a77"
+		},
+		{
+			"checksumSHA1": "qR6CKap6rryxm7Ans5sjXvZLDmQ=",
+			"comment": "v2.2.0-rc.0-72-g106d918",
+			"path": "github.com/coreos/etcd/raft/raftpb",
+			"revision": "106d918dd585a63ee0045740fe040daa44669a77"
+		},
+		{
+			"checksumSHA1": "XXTdkcKpuKr/4EeaoG8eFXaJ8E8=",
+			"comment": "v2.0.0-28-g126041e",
+			"path": "github.com/coreos/go-etcd/etcd",
+			"revision": "126041ef7b24a28359a12f8bf7f6a7db6756113d"
+		},
+		{
+			"checksumSHA1": "ynyfeW3EAJ4un2r51sOwABo0IRQ=",
+			"comment": "v3-11-g6f3d6b0",
+			"path": "github.com/coreos/go-systemd/journal",
+			"revision": "6f3d6b0accd17b33624ee4df1532a03de6e4d536"
+		},
+		{
+			"checksumSHA1": "L9622BgZxG4k/WJrKjVoqRL0EEk=",
+			"path": "github.com/coreos/pkg/capnslog",
+			"revision": "42a8c3b1a6f917bb8346ef738f32712a7ca0ede7"
+		},
+		{
+			"checksumSHA1": "zKIRxKZxUQKBpbqGFAR9ayOf22s=",
+			"path": "github.com/coreos/pkg/capnslog/example",
+			"revision": "42a8c3b1a6f917bb8346ef738f32712a7ca0ede7"
+		},
+		{
+			"checksumSHA1": "r9Xg840IyiK+8CqXk1cPfYTzEIg=",
+			"comment": "v0.1-6-g932b70a",
+			"path": "github.com/gogo/protobuf/proto",
+			"revision": "932b70afa8b0bf4a8e167fdf0c3367cebba45903"
+		},
+		{
+			"checksumSHA1": "tKMSOCOue78dHOP9PY0aSI79+vw=",
+			"path": "github.com/golang/glog",
+			"revision": "fca8c8854093a154ff1eb580aae10276ad6b1b5f"
+		},
+		{
+			"checksumSHA1": "kaoDcAnCetGsIbQVNSWdil20pE8=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/auth",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "Rv66m6pRC2ZWpaodGhYwEXECZzY=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/auth/callback",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "82N2YYFd9d1ixElCOqH8A4r28os=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/auth/sasl",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "TntBavPaoYRLA1rAFnu8tJdapmg=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/auth/sasl/mech",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "xzyWVz2j17fByqbxuUBCAXTCHhc=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/auth/sasl/mech/crammd5",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "XC8dLmCet7C0/2yIKggMAVCHwmY=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/auth/sasl/mock",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "uOGTApADvq2UBjPAs91HgsxKI9k=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/detector",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "SzTWV5vg3qhBdcdVfpngCRWcBM0=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/detector/zoo",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "TEfHW1t7W6g6eT0YGpbYjm664CE=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/detector/zoo/mock",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "MecMYu7+j1UEpaD5ps20OrY6Cqs=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/executor",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "oavVPfkh1Pg3EonUcx4xwq07VlE=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/executor/mock",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "S0BGOKRM9TIZZRp/kPjMSVuxNDA=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/mesosproto",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "1l9+hcmKy0e+udvLXZjtaj7ktnw=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/mesosproto/scheduler",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "SFT2UYKy02yTy4MlNKoD40WBdN0=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/mesosutil",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "2O5vDlIGLieNaN+tBzkPac97PWA=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/mesosutil/process",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "m0N29hVrK3+wd29phj0CRfYsH0s=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/messenger",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "VczAy8Fgp+I1FKCW75DSdRGQjjs=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/messenger/mock",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "+37PFG+tfBGXnpAw3U/11/7b5kw=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/messenger/sessionid",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "O7GyaCgOnBtCdoXCB1/gUeV8oDY=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/messenger/testmessage",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "TDUPCJIuGOBNSDLLjFFrGxF3fZo=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/scheduler",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "q85kDWftFn4docKEK5aft3F9YeA=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/scheduler/mock",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "q2Pe+N23u2wNpfO3c3WXInkmPj4=",
+			"comment": "before-0.26-protos-35-g7064d87",
+			"path": "github.com/mesos/mesos-go/api/v0/upid",
+			"revision": "f9e5fb7c2f50ab5f23299f26b6b07c5d6afdd252"
+		},
+		{
+			"checksumSHA1": "ayRaLmkRnALRhJ4UwpKIHk9kfXo=",
+			"path": "github.com/pborman/uuid",
+			"revision": "cccd189d45f7ac3368a0d127efb7f4d08ae0b655"
+		},
+		{
+			"checksumSHA1": "vSmTsVjWHEDmlPfXvt4WQnex4ec=",
+			"path": "github.com/samuel/go-zookeeper/zk",
+			"revision": "5f85ef92577639933d299695500692ece394b4a7"
+		},
+		{
+			"checksumSHA1": "EO+jcRet/AJ6IY3lBO8l8BLsZWg=",
+			"path": "github.com/stretchr/objx",
+			"revision": "cbeaeb16a013161a98496fad62933b1d21786672"
+		},
+		{
+			"checksumSHA1": "wUispLGoj9YTcOXzCemtsKHTLeQ=",
+			"comment": "v1.0-40-g7c2b1e5",
+			"path": "github.com/stretchr/testify/assert",
+			"revision": "7c2b1e5640dcf2631213ca962d892bffa1e08860"
+		},
+		{
+			"checksumSHA1": "+NhLvXo44P9yBgew6e/JGJv0cMs=",
+			"comment": "v1.0-40-g7c2b1e5",
+			"path": "github.com/stretchr/testify/mock",
+			"revision": "7c2b1e5640dcf2631213ca962d892bffa1e08860"
+		},
+		{
+			"checksumSHA1": "6mHBK/1QuV+7nbFWKmf7vCLlFZU=",
+			"path": "github.com/ugorji/go/codec",
+			"revision": "5abd4e96a45c386928ed2ca2a7ef63e2533e18ec"
+		},
+		{
+			"checksumSHA1": "R6bAtaYvXewQdLJkMaPyZTjdIQA=",
+			"path": "github.com/ugorji/go/codec/codecgen",
+			"revision": "5abd4e96a45c386928ed2ca2a7ef63e2533e18ec"
+		},
+		{
+			"checksumSHA1": "hKZGpbFuCrkE4s1vxubKK1aFlfI=",
+			"path": "golang.org/x/net/context",
+			"revision": "97d8e4e174133a4d1d2171380e510eb4dea8f5ea"
+		}
+	],
+	"rootPath": "github.com/mesosphere/etcd-mesos"
+}

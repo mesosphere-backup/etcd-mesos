@@ -2,59 +2,80 @@ org_path="github.com/mesosphere"
 repo_path="${org_path}/etcd-mesos"
 mkfile_path	:= $(abspath $(lastword $(MAKEFILE_LIST)))
 current_dir	:= $(patsubst %/,%,$(dir $(mkfile_path)))
-GOPATH=${current_dir}/Godeps/_workspace
+
 DOCKER_ORG=mesosphere
 VERSION=0.1.3
 
-default: clean deps build
+default: clean build
 
+.PHONY: clean
+.SILENT: clean
 clean:
-	-rm bin/etcd-*
+	@rm -rf bin
 
-deps:
-	rm -f ${GOPATH}/src/${repo_path}
-	mkdir -p ${GOPATH}/src/${org_path}
-	ln -s ${current_dir} ${GOPATH}/src/${repo_path}
+.PHONY: format
+.SILENT: format
+format:
+	echo "gofmt'ing..."
+	@govendor fmt +local
 
-build: bin/etcd-mesos-executor bin/etcd-mesos-scheduler bin/etcd-mesos-proxy bin/etcd
-
-run: clean bin/etcd-mesos-executor bin/etcd run-scheduler
-
+.PHONY: bin
+.SILENT: bin
 bin:
-	-mkdir bin
+	@mkdir -p bin
 
-bin/etcd-mesos-scheduler: bin
-	go build -o bin/etcd-mesos-scheduler cmd/etcd-mesos-scheduler/app.go
+.PHONY: build
+build: build_scheduler build_executor build_proxy build_etcd
 
-bin/etcd-mesos-executor: bin
-	go build -o bin/etcd-mesos-executor cmd/etcd-mesos-executor/app.go
+.PHONY: build_scheduler
+.SILENT: build_scheduler
+build_scheduler: bin
+	echo "Building etcd-mesos-scheduler.."
+	go build -o bin/etcd-mesos-scheduler ./cmd/etcd-mesos-scheduler
 
-bin/etcd-mesos-proxy: bin
-	go build -o bin/etcd-mesos-proxy cmd/etcd-mesos-proxy/app.go
+.PHONY: build_executor
+.SILENT: build_executor
+build_executor: bin
+	echo "Building etcd-mesos-executor.."
+	go build -o bin/etcd-mesos-executor ./cmd/etcd-mesos-executor
 
-bin/etcd: bin
-	git submodule init
-	git submodule update
+.PHONY: build_proxy
+.SILENT: build_proxy
+build_proxy: bin
+	echo "Building etcd-mesos-proxy.."
+	go build -o bin/etcd-mesos-proxy ./cmd/etcd-mesos-proxy
+
+.PHONY: build_etcd
+.SILENT: build_etcd
+build_etcd: bin
+	echo "Building etcd binaries.."
+	@git submodule init
+	@git submodule update
 	cd _vendor/coreos/etcd; ./build; mv bin/* ../../../bin/
 
-run-scheduler:
-	go run -race cmd/etcd-mesos-scheduler/app.go -logtostderr=true
+.PHONY: run
+run: format run_scheduler
 
-run-scheduler-with-zk:
-	go run -race cmd/etcd-mesos-scheduler/app.go -logtostderr=true \
+# TODO add configurable Zookeeper IP and cluster size
+.PHONY: run_scheduler
+run_scheduler:
+	go run -race ./cmd/etcd-mesos-scheduler/app.go -logtostderr=true \
 		-master="zk://localhost:2181/mesos" \
 		-framework-name="etcd-t1" \
 		-cluster-size=5 \
 		-zk-framework-persist="zk://localhost:2181/etcd-mesos"
 
-run-proxy:
-	go run -race cmd/etcd-mesos-proxy/app.go \
+# TODO add configurable Zookeeper IP
+.PHONY: run_proxy
+run_proxy:
+	go run -race ./cmd/etcd-mesos-proxy/app.go \
 		-master="zk://localhost:2181/mesos" \
 		-framework-name="etcd-t1"
 
 install:
-	go install ./cmd/...
+	@govendor install +local
 
+# TODO fix because doesn't work (at least on MacOS X)
 cover:
 	for i in `dirname **/*_test.go | grep -v "_vendor" | sort | uniq`; do \
 		echo $$i; \
@@ -63,16 +84,19 @@ cover:
 	done
 
 test:
-	go test -race ./...
+	@govendor test -race +local
 
 docker_build:
 	docker run --rm -v "$$PWD":/go/src/github.com/mesosphere/etcd-mesos \
 		-e GOPATH=/go \
 		-w /go/src/github.com/mesosphere/etcd-mesos \
-		golang:1.4.2 make
+		golang:1.8.1 \
+		make
 
 docker: docker_build
-	docker build -t $(DOCKER_ORG)/etcd-mesos:$(VERSION) .
+	docker build --no-cache -t $(DOCKER_ORG)/etcd-mesos:$(VERSION) .
+	docker push $(DOCKER_ORG)/etcd-mesos:$(VERSION)
 
+# TODO add configurable Marathon IP
 marathon: docker
 	curl -X POST http://localhost:8080/v2/apps -d @marathon.json -H "Content-type: application/json"

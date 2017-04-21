@@ -1,8 +1,5 @@
-Godeps/_workspace/src/github.com/mesosphere/etcd-mesos
 bin
 gopath
-etcd_executor
-etcd_scheduler
 
 # Compiled Object files, Static and Dynamic libs (Shared Objects)
 *.o

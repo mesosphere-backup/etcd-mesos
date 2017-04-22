@@ -3,6 +3,11 @@ repo_path="${org_path}/etcd-mesos"
 mkfile_path	:= $(abspath $(lastword $(MAKEFILE_LIST)))
 current_dir	:= $(patsubst %/,%,$(dir $(mkfile_path)))
 
+ETCD_CLUSTER_SIZE=3
+
+MARATHON_IP=localhost
+ZK_IP=localhost
+
 # TODO document possible environment variables
 DOCKER_ORG=mesosphere
 VERSION=0.1.3
@@ -62,16 +67,16 @@ run: format run_scheduler
 .PHONY: run_scheduler
 run_scheduler:
 	go run -race ./cmd/etcd-mesos-scheduler/app.go -logtostderr=true \
-		-master="zk://localhost:2181/mesos" \
+		-master="zk://${ZK_IP}:2181/mesos" \
 		-framework-name="etcd-t1" \
-		-cluster-size=5 \
-		-zk-framework-persist="zk://localhost:2181/etcd-mesos"
+		-cluster-size=${ETCD_CLUSTER_SIZE} \
+		-zk-framework-persist="zk://${ZK_IP}:2181/etcd-mesos"
 
 # TODO add configurable Zookeeper IP
 .PHONY: run_proxy
 run_proxy:
 	go run -race ./cmd/etcd-mesos-proxy/app.go \
-		-master="zk://localhost:2181/mesos" \
+		-master="zk://${ZK_IP}:2181/mesos" \
 		-framework-name="etcd-t1"
 
 install:
@@ -103,4 +108,4 @@ docker: docker_build
 
 # TODO add configurable Marathon IP
 marathon: docker
-	curl -X POST http://localhost:8080/v2/apps -d @marathon.json -H "Content-type: application/json"
+	curl -X POST http://${MARATHON_IP}:8080/v2/apps -d @marathon.json -H "Content-type: application/json"

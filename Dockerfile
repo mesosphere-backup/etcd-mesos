@@ -1,4 +1,4 @@
-FROM debian
+FROM alpine:3.5
 
 ADD bin /work/bin
 ADD static /work/static

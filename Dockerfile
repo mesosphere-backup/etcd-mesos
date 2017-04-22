@@ -20,6 +20,7 @@ ENV MEM_LIMIT=1024
 
 CMD sh -xc "/work/bin/etcd-mesos-scheduler -alsologtostderr=true \
     -address=${LIBPROCESS_IP} \
+    -advertise-address=${LIBPROCESS_ADVERTISE_IP} \
     -framework-name=${FRAMEWORK_NAME} \
     -failover-timeout-seconds=${FRAMEWORK_FAILOVER_TIMEOUT_SECONDS} \
     -cluster-size=${CLUSTER_SIZE} \

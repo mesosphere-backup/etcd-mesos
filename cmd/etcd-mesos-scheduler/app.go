@@ -83,6 +83,8 @@ func main() {
 		flag.String("etcdctl-bin", "./bin/etcdctl", "Path to etcdctl binary")
 	address :=
 		flag.String("address", "", "Binding address for scheduler and artifact server")
+	advertiseAddress :=
+		flag.String("advertise-address", "", "Address advertised to mesos master")
 	driverPort :=
 		flag.Int("driver-port", 0, "Binding port for scheduler driver")
 	mesosAuthPrincipal :=
@@ -112,22 +114,15 @@ func main() {
 			"the cost of a single node being lost, livelock, and data loss.")
 	}
 
-	if *address == "" {
-		hostname, err := os.Hostname()
-		if err == nil {
-			*address = hostname
-		} else {
-			log.Errorf("Could not set default binding to hostname.  Defaulting to 127.0.0.1")
-			*address = "127.0.0.1"
-		}
-	}
+	var explicitAdvertise bool
+	*address, *advertiseAddress, explicitAdvertise = defaultAddresses(*address, *advertiseAddress)
 
 	if *weburi == "" {
 		*weburi = fmt.Sprintf("http://%s:%d/", *address, *adminPort)
 	}
 
 	executorUris := []*mesos.CommandInfo_URI{}
-	execUri, err := etcdscheduler.ServeExecutorArtifact(*executorPath, *address, *artifactPort)
+	execUri, err := etcdscheduler.ServeExecutorArtifact(*executorPath, *advertiseAddress, *artifactPort)
 	if err != nil {
 		log.Errorf("Could not stat executor binary: %v", err)
 		return
@@ -136,7 +131,7 @@ func main() {
 		Value:      execUri,
 		Executable: proto.Bool(true),
 	})
-	etcdUri, err := etcdscheduler.ServeExecutorArtifact(*etcdPath, *address, *artifactPort)
+	etcdUri, err := etcdscheduler.ServeExecutorArtifact(*etcdPath, *advertiseAddress, *artifactPort)
 	if err != nil {
 		log.Errorf("Could not stat etcd binary: %v", err)
 		return
@@ -145,7 +140,7 @@ func main() {
 		Value:      etcdUri,
 		Executable: proto.Bool(true),
 	})
-	etcdctlUri, err := etcdscheduler.ServeExecutorArtifact(*etcdctlPath, *address, *artifactPort)
+	etcdctlUri, err := etcdscheduler.ServeExecutorArtifact(*etcdctlPath, *advertiseAddress, *artifactPort)
 	if err != nil {
 		log.Errorf("Could not stat etcdctl binary: %v", err)
 		return
@@ -231,17 +226,20 @@ func main() {
 	}
 
 	config := scheduler.DriverConfig{
-		Scheduler:      etcdScheduler,
-		Framework:      fwinfo,
-		Master:         etcdScheduler.Master,
-		Credential:     cred,
-		BindingAddress: bindingAddress,
-		BindingPort:    uint16(*driverPort),
+		Scheduler:        etcdScheduler,
+		Framework:        fwinfo,
+		Master:           etcdScheduler.Master,
+		Credential:       cred,
+		BindingAddress:   bindingAddress,
+		BindingPort:      uint16(*driverPort),
 		WithAuthContext: func(ctx context.Context) context.Context {
 			ctx = auth.WithLoginProvider(ctx, *authProvider)
 			ctx = sasl.WithBindingAddress(ctx, bindingAddress)
 			return ctx
 		},
+	}
+	if explicitAdvertise {
+		config.PublishedAddress = parseIP(*advertiseAddress)
 	}
 
 	driver, err := scheduler.NewMesosSchedulerDriver(config)
@@ -261,4 +259,24 @@ func main() {
 			stat.String(),
 			err.Error())
 	}
+}
+
+func defaultAddresses(address, advertiseAddress string) (string, string, bool) {
+	if address == "" {
+		hostname, err := os.Hostname()
+		if err == nil {
+			address = hostname
+		} else {
+			log.Errorf("Could not set default binding to hostname.  Defaulting to 127.0.0.1")
+			address = "127.0.0.1"
+		}
+	}
+
+	explicitAdvertise := true
+	if advertiseAddress == "" {
+		advertiseAddress = address
+		explicitAdvertise = false
+	}
+
+	return address, advertiseAddress, explicitAdvertise
 }

@@ -13,6 +13,16 @@
     "mem": 128.0,
     "instances": 1,
     "ports": [0, 0, 0],
+    "healthChecks":[
+      {
+        "gracePeriodSeconds":60,
+        "intervalSeconds":30,
+        "maxConsecutiveFailures":0,
+        "path":"/healthz",
+        "portIndex":0,
+        "protocol":"HTTP"
+      }
+    ],
     "env": {
       "FRAMEWORK_NAME":"etcd",
       "FRAMEWORK_FAILOVER_TIMEOUT_SECONDS":"300",

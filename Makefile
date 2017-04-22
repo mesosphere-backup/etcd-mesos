@@ -38,19 +38,19 @@ build: build_scheduler build_executor build_proxy build_etcd
 .SILENT: build_scheduler
 build_scheduler: bin
 	echo "Building etcd-mesos-scheduler.."
-	go build -o bin/etcd-mesos-scheduler ./cmd/etcd-mesos-scheduler
+	CGO_ENABLED=0 go build -installsuffix cgo -ldflags '-w -extldflags=-static' -o bin/etcd-mesos-scheduler ./cmd/etcd-mesos-scheduler
 
 .PHONY: build_executor
 .SILENT: build_executor
 build_executor: bin
 	echo "Building etcd-mesos-executor.."
-	go build -o bin/etcd-mesos-executor ./cmd/etcd-mesos-executor
+	CGO_ENABLED=0 go build -installsuffix cgo -ldflags '-w -extldflags=-static' -o bin/etcd-mesos-executor ./cmd/etcd-mesos-executor
 
 .PHONY: build_proxy
 .SILENT: build_proxy
 build_proxy: bin
 	echo "Building etcd-mesos-proxy.."
-	go build -o bin/etcd-mesos-proxy ./cmd/etcd-mesos-proxy
+	CGO_ENABLED=0 go build -installsuffix cgo -ldflags '-w -extldflags=-static' -o bin/etcd-mesos-proxy ./cmd/etcd-mesos-proxy
 
 .PHONY: build_etcd
 .SILENT: build_etcd

@@ -63,6 +63,9 @@ func RankReseedCandidates(running map[string]*config.Node) []nodeIndex {
 		)
 		// This has a 1s dial timeout, which is good for us here
 		client := etcd.NewClient([]string{url})
+		if args.Username != "" {
+			client.SetCredentials(args.Username, args.Password)
+		}
 		if ok := client.SyncCluster(); !ok {
 			log.Error("Could not establish connection "+
 				"with cluster using endpoints %+v", url)

@@ -42,6 +42,7 @@ func HealthCheck(running map[string]*config.Node) error {
 		return nil
 	}
 	var validEndpoint string
+	var validNode *config.Node
 	for _, args := range running {
 		url := fmt.Sprintf(
 			"http://%s:%d",
@@ -72,6 +73,7 @@ func HealthCheck(running map[string]*config.Node) error {
 			continue
 		}
 		validEndpoint = url
+		validNode = args
 		break
 	}
 
@@ -83,6 +85,9 @@ func HealthCheck(running map[string]*config.Node) error {
 	// This has a 1s dial timeout, which is ok for us
 	client := etcd.NewClient([]string{validEndpoint})
 	client.SetDialTimeout(RPC_TIMEOUT)
+	if validNode.Username != "" {
+		client.SetCredentials(validNode.Username, validNode.Password)
+	}
 	if ok := client.SyncCluster(); !ok {
 		log.Errorf("Could not establish connection "+
 			"with cluster using endpoints %s", validEndpoint)

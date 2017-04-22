@@ -231,7 +231,18 @@ func (s *EtcdScheduler) ResourceOffers(
 		memWanted   = s.memPerTask + executorWantsMem
 		portsWanted = uint64(portsPerTask + executorWantsPorts)
 	)
+
 	for _, offer := range offers {
+		// Reject offer if there's nothing to schedule.
+		s.mut.RLock()
+		if len(s.running) == s.desiredInstanceCount {
+			log.V(2).Infoln("Received offer but but reject since there are no tasks pending.")
+			s.decline(driver, offer)
+			s.mut.RUnlock()
+			continue
+		}
+		s.mut.RUnlock()
+
 		resources := parseOffer(offer)
 
 		totalPorts := uint64(0)

@@ -349,12 +349,6 @@ func (s *EtcdScheduler) StatusUpdate(
 
 		atomic.AddUint32(&s.Stats.FailedServers, 1)
 
-		// TODO(tyler) kill this
-		// Pump the brakes so that we have time to deconfigure the lost node
-		// before adding a new one.  If we don't deconfigure first, we risk
-		// split brain.
-		s.PumpTheBrakes()
-
 		// now we know this task is dead
 		delete(s.pending, node.Name)
 		delete(s.running, node.Name)
@@ -620,14 +614,6 @@ func (s *EtcdScheduler) QueueLaunchAttempt() {
 	default:
 		// Somehow launchChan is full...
 		log.Warning("launchChan is full!")
-	}
-}
-
-func (s *EtcdScheduler) PumpTheBrakes() {
-	select {
-	case s.pauseChan <- struct{}{}:
-	default:
-		log.Warning("pauseChan is full!")
 	}
 }
 

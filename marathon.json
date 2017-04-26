@@ -6,13 +6,11 @@
             "forcePullImage": true
         },
         "type": "DOCKER",
-        "volumes": []
     },
-    "args": [],
     "cpus": 0.2,
     "mem": 128.0,
     "instances": 1,
-    "ports": [0, 0, 0],
+    "portDefinitions": [0, 0, 0],
     "env": {
       "FRAMEWORK_NAME":"etcd",
       "FRAMEWORK_FAILOVER_TIMEOUT_SECONDS":"300",

@@ -1,113 +1,125 @@
-# [ALPHA] etcd-mesos
-This is an Apache Mesos framework that runs an etcd cluster.  It performs periodic health checks to ensure that the cluster has a stable leader and that raft is making progress.  It replaces nodes that die.
+# etcd-mesos
 
-Guides:
+This is an [Apache Mesos](https://mesos.apache.org) framework for [etcd](https://github.com/coreos/etcd). It starts and manages the lifecycle of one highly-available `etcd` cluster of your desired size.
+
+**WARNING**: this work is considered to be **`ALPHA`**!
+
+## Features
+
+* Start and manage the lifecycle of one highly-available `etcd` cluster of your desired size.
+* Recover from n/2-1 failures by reconfiguring the `etcd` cluster and launching replacement members.
+* Recover from up to n-1 simultaneous failures by picking a survivor to re-seed a new cluster (ranks survivors by [raft index](https://github.com/coreos/etcd/blob/master/raft/design.md), preferring the member with the most recent commit).
+* Provide one `etcd` proxy (`etcd-mesos-proxy`) and optional SRV lookup support via [Mesos-DNS](https://github.com/mesosphere/mesos-dns).
+
+For more information, please consult the following design documents:
 * [Architecture](docs/architecture.md)
 * [Administration](docs/administration.md)
 * [Incident Response](docs/response.md)
 
-## features
+## Deployment
 
-- [x] runs, monitors, and administers an etcd cluster of your desired size
-- [x] recovers from n/2-1 failures by reconfiguring the etcd cluster and launching replacement nodes
-- [x] recovers from up to n-1 simultaneous failures by picking a survivor to re-seed a new cluster (ranks survivors by raft index, prefering the replica with the highest commit)
-- [x] etcd proxy configurer (etcd-mesos-proxy) and optional SRV record support via mesos-dns
+There are quite a few different ways to run this framework but for the sake of simplicity let's deploy it as a [Marathon application](https://mesosphere.github.io/marathon/docs/application-basics.html):
 
-## running
-
-Marathon spec:
-```
+```json
 {
-  "id": "etcd",
-  "container": {
-    "docker": {
-      "forcePullImage": true,
-      "image": "mesosphere/etcd-mesos:0.1.0-alpha-target-23-24-25"
+  "id":"etcd",
+  "container":{
+    "docker":{
+      "image":"mesosphere/etcd-mesos:0.1.3",
+      "forcePullImage":true
     },
-    "type": "DOCKER"
+    "type":"MESOS",
   },
-  "cpus": 0.2,
-  "env": {
-    "FRAMEWORK_NAME": "etcd",
-    "WEBURI": "http://etcd.marathon.mesos:$PORT0/stats",
-    "MESOS_MASTER": "zk://master.mesos:2181/mesos",
-    "ZK_PERSIST": "zk://master.mesos:2181/etcd",
-    "AUTO_RESEED": "true",
-    "RESEED_TIMEOUT": "240",
-    "CLUSTER_SIZE": "3",
-    "CPU_LIMIT": "1",
-    "DISK_LIMIT": "4096",
-    "MEM_LIMIT": "2048",
-    "VERBOSITY": "1"
-  },
-  "healthChecks": [
+  "cpus":0.2,
+  "mem":128.0,
+  "instances":1,
+  "portDefinitions":[0, 0, 0],
+  "healthChecks":[
     {
-      "gracePeriodSeconds": 60,
-      "intervalSeconds": 30,
-      "maxConsecutiveFailures": 0,
-      "path": "/healthz",
-      "portIndex": 0,
-      "protocol": "HTTP"
+      "gracePeriodSeconds":60,
+      "intervalSeconds":30,
+      "maxConsecutiveFailures":0,
+      "path":"/healthz",
+      "portIndex":0,
+      "protocol":"HTTP"
     }
   ],
-  "instances": 1,
-  "mem": 128.0,
-  "ports": [
-    0,
-    1,
-    2
-  ]
+  "env":{
+    "FRAMEWORK_NAME":"etcd",
+    "FRAMEWORK_FAILOVER_TIMEOUT_SECONDS":"300",
+    "WEBURI":"http://etcd.marathon.mesos:$PORT0/stats",
+    "CLUSTER_SIZE":"3",
+    "MESOS_MASTER":"zk://localhost:2181/mesos",
+    "ZK_PERSIST":"zk://localhost:2181/etcd-mesos",
+    "VERBOSITY":"3",
+    "SINGLE_INSTANCE_PER_SLAVE":"true",
+    "AUTO_RESEED":"true",
+    "RESEED_TIMEOUT":"240",
+    "DISK_LIMIT":"1024",
+    "CPU_LIMIT":"0.2",
+    "MEM_LIMIT":"256"
+  }
 }
 ```
 
-## building
+## Build (optional)
 
-First, check out the tagged release for your version of Mesos.
+In order to build the code and, eventually, the Docker container image, one needs:
+* `make`, and
+* either `go` (1.8.1 is the recommended version) and [`govendor`](https://github.com/kardianos/govendor), or
+* Docker, in order to run the build in a container.
 
-For Mesos versions 23, 24, or 25, check out `v0.1.0-alpha-target-23-24-25`
+If all you want is to build the code, you have at least two ways to do it.
 
-For Mesos versions 22 and below (the farther below, the less the chances of compatibility), check out `v0.1.0-alpha-target-22`
-
-Next, built it!
-
-```
+Use `go build`:
+```sh
 make
 ```
 
-The important binaries (`etcd-mesos-scheduler`, `etcd-mesos-proxy`, `etcd-mesos-executor`) are now present in the bin subdirectory.
-
-A typical production invocation will look something like this:
-```
-/path/to/etcd-mesos-scheduler \
-    -log_dir=/var/log/etcd-mesos \
-    -master=zk://zk1:2181,zk2:2181,zk3:2181/mesos \
-    -framework-name=etcd \
-    -cluster-size=5 \
-    -executor-bin=/path/to/etcd-mesos-executor \
-    -etcd-bin=/path/to/etcd \
-    -etcdctl-bin=/path/to/etcdctl \
-    -zk-framework-persist=zk://zk1:2181,zk2:2181,zk3:2181/etcd-mesos
+or use Docker:
+```sh
+make docker_build
 ```
 
-If you'd like to build a new docker container, change the `DOCKER_ORG` and `VERSION` in the Makefile, and then run:
-```
+All necessary binaries are now available in the `bin` subdirectory.
+
+### Docker specifics
+
+If you'd like to build a new Docker container image:
+```sh
 make docker
 ```
 
-## service discovery
-Options for finding your etcd nodes on mesos:
-
-* Run the included proxy binary locally on systems that use etcd.  It retrieves the etcd configuration from mesos and starts an etcd proxy node.  Note that this it not a good idea on clusters with lots of tasks running, as the master will iterate through each task and spit out a fairly large chunk of JSON, so this approach should be avoided in favor of mesos-dns on larger clusters.
+Optionally, set `DOCKER_ORG` and `VERSION`:
 ```
+make docker DOCKER_ORG=quay.io/myorg VERSION=myver
+```
+
+Optionally, push the container image:
+```sh
+ make docker DOCKER_ORG=quay.io/myorg VERSION=myver DOCKER_PUSH_ENABLED=1
+```
+
+## Service discovery
+
+Below, you'll find some options for finding your `etcd` members:
+
+* Run the included proxy binary locally on systems that use `etcd`.  This proxy retrieves the `etcd` configuration from Mesos and starts one `etcd` proxy member.
+
+```sh
 etcd-mesos-proxy --master=zk://localhost:2181/mesos --framework-name=etcd
 ```
 
-* Use mesos-dns or another system that creates SRV records and have an etcd proxy use SRV discovery:
-```
+**Note** though, that this should be avoided in large clusters, running lots of tasks, given the master will iterate through all tasks and spit out a fairly large chunk of JSON. In such scenarios, Mesos-DNS is recommended.
+
+* Use Mesos-DNS or similar solutions that manage SRV records, and have the `etcd` proxy rely on SRV discovery:
+
+```sh
 etcd --proxy=on --discovery-srv=etcd.mesos
 ```
 
-* Use Mesos DNS or another DNS SRV system and have clients resolve `_etcd-server._client.<framework name>.mesos`
+* Use Mesos-DNS or similar solutions that manage SRV records, and have clients resolve `_etcd-server._client.<framework name>.mesos`
 
-* Use another system that builds configuration from mesos's state.json endpoint.  This is how #1 works, so check out the code for it in `cmd/etcd-mesos-proxy/app.go` if you want to go this route.  Be sure to minimize calls to the master for state.json on larger clusters, as this becomes an expensive operation that can easily DDOS your master if you are not careful.
-* Current membership may be queried from the `etcd-mesos-scheduler`'s `/members` http endpoint that listens on the `--admin-port` (default 23400)
+* Use another solution that builds configuration from [Mesos' master state endpoint](http://mesos.apache.org/documentation/latest/endpoints/master/state/). This is how the first option works, so check out the [`etcd-mesos-proxy`](https://github.com/mesosphere/etcd-mesos/blob/master/cmd/etcd-mesos-proxy/app.go) code if you want to pursuit this route. Just make sure to minimize calls to the master state on larger clusters, as this becomes quite an expensive operation that can easily [DDoS](https://en.wikipedia.org/wiki/Denial-of-service_attack) your cluster.
+
+* Also, current membership may be queried from the `etcd-mesos-scheduler`'s `/members` HTTP endpoint, available through the `--admin-port` (defaults to `23400`).

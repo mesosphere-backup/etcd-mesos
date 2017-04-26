@@ -29,13 +29,11 @@ There are quite a few different ways to run this framework but for the sake of s
       "forcePullImage":true
     },
     "type":"MESOS",
-    "volumes":[]
   },
-  "args":[],
   "cpus":0.2,
   "mem":128.0,
   "instances":1,
-  "ports":[0, 0, 0],
+  "portDefinitions":[0, 0, 0],
   "healthChecks":[
     {
       "gracePeriodSeconds":60,
@@ -67,7 +65,7 @@ There are quite a few different ways to run this framework but for the sake of s
 ## Build (optional)
 
 In order to build the code and, eventually, the Docker container image, one needs:
-* `automake`, and
+* `make`, and
 * either `go` (1.8.1 is the recommended version) and [`govendor`](https://github.com/kardianos/govendor), or
 * Docker, in order to run the build in a container.
 

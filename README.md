@@ -62,28 +62,33 @@ There are quite a few different ways to run this framework but for the sake of s
 }
 ```
 
-## Build (optional)
+## Build
 
-In order to build the code and, eventually, the Docker container image, one needs:
-* `make`, and
-* either `go` (1.8.1 is the recommended version) and [`govendor`](https://github.com/kardianos/govendor), or
-* Docker, in order to run the build in a container.
+### Build locally
 
-If all you want is to build the code, you have at least two ways to do it.
+In order to build the code locally, one needs:
 
-Use `go build`:
+* `go` (1.8.1 is the recommended version)
+* [`govendor`](https://github.com/kardianos/govendor)
+* `make`
+
 ```sh
 make
 ```
 
-or use Docker:
+All necessary binaries are now available in the `bin` subdirectory.
+
+### Build with Docker
+
+In order to proceed, one needs Docker installed.
+
 ```sh
 make docker_build
 ```
 
 All necessary binaries are now available in the `bin` subdirectory.
 
-### Docker specifics
+## Release
 
 If you'd like to build a new Docker container image:
 ```sh
@@ -92,12 +97,12 @@ make docker
 
 Optionally, set `DOCKER_ORG` and `VERSION`:
 ```
-make docker DOCKER_ORG=quay.io/myorg VERSION=myver
+make docker DOCKER_ORG=myorg VERSION=myver
 ```
 
 Optionally, push the container image:
 ```sh
- make docker DOCKER_ORG=quay.io/myorg VERSION=myver DOCKER_PUSH_ENABLED=1
+ make docker DOCKER_ORG=myorg VERSION=myver DOCKER_PUSH_ENABLED=1
 ```
 
 ## Service discovery
